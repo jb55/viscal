@@ -6,15 +6,40 @@
 #include <math.h>
 #include <locale.h>
 
+#define length(array) (sizeof((array))/sizeof((array)[0]))
+
+enum event_flags {
+    EV_SELECTED    = 1 << 0
+  , EV_HIGHLIGHTED = 1 << 1
+  , EV_DRAGGING    = 1 << 2
+};
+
+struct cal {
+  struct event *events;
+  int nevents;
+};
+
+struct extra_data {
+  GtkWindow *win;
+  struct cal *cal;
+};
+
 struct event {
   time_t start;
   time_t end;
   char *title;
+  enum event_flags flags;
+
+  // set on draw
+  double width, height;
+  double x, y;
 };
 
-union color {
-  float rgb[3];
-  float r, g, b;
+union rgba {
+  double rgba[4];
+  struct {
+    double r, g, b, a;
+  };
 };
 
 #define max(a,b)                                \
@@ -22,40 +47,110 @@ union color {
     __typeof__ (b) _b = (b);                    \
     _a > _b ? _a : _b; })
 
+#define min(a,b)                                \
+  ({ __typeof__ (a) _a = (a);                   \
+    __typeof__ (b) _b = (b);                    \
+    _a < _b ? _a : _b; })
+
 static const int DEF_LMARGIN = 20;
 static int g_lmargin = 40;
 static int g_margin_time_w = 0;
-static union color g_text_color;
+static union rgba g_text_color;
 static int margin_calculated = 0;
 static const double bg_color = 0.35;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
 static const int GAP = 0;
+static GdkCursor *pointer_progress;
+static GdkCursor *pointer_default;
 const double dashed[] = {1.0};
+
 
 static void format_margin_time (char *, int, int);
 static void draw_hours (cairo_t *, int, int, int);
 static void draw_background (cairo_t *, int, int);
 static void draw_rectangle (cairo_t *, double, double);
-static void draw_event (cairo_t *, int, int, struct event *, int, int);
-static int draw_cal (cairo_t *, int, int);
+static void event_update (struct event *, int, int, int, int);
+static void event_draw (cairo_t *, struct event *);
+static void update_events_flags (struct event*, int, double, double);
+static void calendar_update (struct cal *cal, int width, int height);
+static int calendar_draw (cairo_t *, struct cal*, int, int);
 
 static gboolean
 on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data);
 
 static int on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data);
+static int on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data);
 
 static int
 on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
-  printf("press\n");
   return 1;
 }
+
+static int
+event_any_flags(struct event *events, int flag, int nevents) {
+  for (int i = 0; i < nevents; i++) {
+    if ((events[i].flags & flag) != 0)
+      return 1;
+  }
+  return 0;
+}
+
+static int
+on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
+  static int prev_hit = 0;
+
+  int hit = 0;
+  struct extra_data *data = (struct extra_data*)user_data;
+  struct cal *cal = data->cal;
+  GdkWindow *gdkwin = gtk_widget_get_window(widget);
+
+  update_events_flags (cal->events, cal->nevents, ev->x, ev->y);
+  hit = event_any_flags(cal->events, cal->nevents, EV_HIGHLIGHTED);
+
+  if (hit) {
+    gdk_window_set_cursor(gdkwin, pointer_progress);
+  }
+  else {
+    gdk_window_set_cursor(gdkwin, pointer_default);
+  }
+
+  if (hit != prev_hit)
+    gtk_widget_queue_draw(widget);
+
+  prev_hit = hit;
+
+  return 1;
+}
+
+static void
+update_event_flags (struct event *ev, double mx, double my) {
+  int hit =
+         mx >= ev->x
+      && mx <= (ev->x + ev->width)
+      && my >= ev->y
+      && my <= (ev->y + ev->height);
+
+  if (hit) ev->flags |=  EV_HIGHLIGHTED;
+  else     ev->flags &= ~EV_HIGHLIGHTED;
+}
+
+static void
+update_events_flags (struct event *events, int nevents, double mx, double my) {
+  for (int i = 0; i < nevents; ++i) {
+    struct event *ev = &events[i];
+    update_event_flags (ev, mx, my);
+  }
+}
+
 
 static gboolean
 on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 {
   int width, height;
-  GtkWindow *win = (GtkWindow*) user_data;
+  struct extra_data *data = (struct extra_data*) user_data;
+  struct cal *cal = data->cal;
+
   if (!margin_calculated) {
     char buffer[32];
     cairo_text_extents_t exts;
@@ -67,8 +162,10 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 
     margin_calculated = 1;
   }
-  gtk_window_get_size(win, &width, &height);
-  draw_cal(cr, width, height);
+
+  gtk_window_get_size(data->win, &width, &height);
+  calendar_update(cal, width, height);
+  calendar_draw(cr, cal, width, height);
 
   return FALSE;
 }
@@ -88,6 +185,7 @@ static void draw_rectangle (cairo_t *cr, double x, double y) {
   cairo_close_path (cr);
 }
 
+
 void time_remove_seconds(char *time) {
   int len = strlen(time);
   int count = 0;
@@ -105,12 +203,14 @@ void time_remove_seconds(char *time) {
   }
 }
 
+
 static void
 format_margin_time(char *buffer, int bsize, int hour) {
   struct tm tm = { .tm_min = 0, .tm_hour = hour };
   strftime(buffer, bsize, "%X", &tm);
   time_remove_seconds(buffer);
 }
+
 
 static void
 draw_hours (cairo_t *cr, int sy, int width, int height) {
@@ -133,6 +233,7 @@ draw_hours (cairo_t *cr, int sy, int width, int height) {
       cairo_set_dash (cr, dashed, 1, 0);
 
     cairo_stroke(cr);
+    cairo_set_dash (cr, NULL, 0, 0);
 
     int onhour = ((minutes / 30) % 2) == 0;
     if (onhour) {
@@ -149,7 +250,6 @@ draw_hours (cairo_t *cr, int sy, int width, int height) {
   }
 }
 
-
 static double time_location (struct tm *d) {
   int hour = d->tm_hour;
   int minute = d->tm_min;
@@ -162,39 +262,67 @@ static double time_location (struct tm *d) {
 }
 
 static void
-draw_event (cairo_t *cr, int sx, int sy,
-            struct event *ev, int width, int height) {
+event_update (struct event *ev, int sx, int sy, int width, int height) {
   double sloc = time_location(localtime(&ev->start));
   double eloc = time_location(localtime(&ev->end));
   double dloc = eloc - sloc;
   double eheight = dloc * height;
+  double y = (sloc * height) + sy;
 
+  ev->width = width;
+  ev->height = eheight;
+  ev->x = sx;
+  ev->y = y;
+}
+
+static void
+event_draw (cairo_t *cr, struct event *ev) {
   // double height = Math.fmin(, MIN_EVENT_HEIGHT);
   // stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
   // 			  sloc, eloc, dloc, eheight);
+  union rgba c = {
+    .rgba = { 1.0, 0.0, 0.0, 0.25 }
+  };
 
-  cairo_move_to(cr, sx, (sloc * height)+sy);
-  cairo_set_source_rgba(cr, 1.0, 0, 0, 0.25);
-  draw_rectangle(cr, (double)width, eheight);
+  if ((ev->flags & EV_HIGHLIGHTED) != 0) {
+    c.a += 0.25;
+  }
+
+  cairo_move_to(cr, ev->x, ev->y);
+  // TODO: calendar color for events
+  cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
+  draw_rectangle(cr, ev->width, ev->height);
   cairo_fill(cr);
-  cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+  cairo_move_to(cr, ev->x, ev->y);
+  draw_rectangle(cr, ev->width, ev->height);
+  cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a*2);
   cairo_stroke(cr);
-  cairo_move_to(cr, sx + EVPAD, (sloc * height)+EVPAD+TXTPAD+sy);
+  cairo_move_to(cr, ev->x + EVPAD, ev->y + EVPAD + TXTPAD);
+  cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
   cairo_show_text(cr, ev->title);
 }
 
+static void
+calendar_update (struct cal *cal, int width, int height) {
+  int i;
 
-static int draw_cal (cairo_t *cr, int width, int height) {
-  struct event ev;
-  struct tm *sev;
+  // TODO refactor urxff
+  width -= g_lmargin+GAP;
+  height -= GAP*2;
 
-  time(&ev.start);
-  sev = localtime(&ev.start);
-  sev->tm_hour += 1;
-  ev.end = mktime(sev);
-  ev.title = "Coding this";
+  for (i = 0; i < cal->nevents; ++i) {
+    struct event *ev = &cal->events[i];
+    event_update(ev, g_lmargin, GAP, width, height);
+  }
+}
 
-  width -= g_lmargin+GAP; height -= GAP*2;
+static int
+calendar_draw (cairo_t *cr, struct cal *cal, int width, int height) {
+  int i;
+
+  // TODO refactor urxff
+  width -= g_lmargin+GAP;
+  height -= GAP*2;
 
   cairo_move_to(cr, g_lmargin, GAP);
   draw_background(cr, width, height);
@@ -202,7 +330,11 @@ static int draw_cal (cairo_t *cr, int width, int height) {
   // cairo_move_to (GAP, GAP);
   draw_hours(cr, GAP, width+g_lmargin, height);
 
-  draw_event(cr, g_lmargin, GAP, &ev, width, height);
+  // draw calendar events
+  for (i = 0; i < cal->nevents; ++i) {
+    struct event *ev = &cal->events[i];
+    event_draw(cr, ev);
+  }
 
   return 1;
 }
@@ -211,9 +343,36 @@ int main(int argc, char *argv[])
 {
   GtkWidget *window;
   GtkWidget *darea;
+  GdkDisplay *display;
   GdkColor color;
   char buffer[32];
   double text_col = 0.6;
+
+  struct event ev;
+  struct event ev2;
+  struct tm *sev;
+
+  time(&ev.start);
+  sev = localtime(&ev.start);
+  sev->tm_hour += 1;
+  ev.end = mktime(sev);
+  ev.title = "Coding this";
+
+  time(&ev2.start);
+  sev = localtime(&ev2.start);
+  sev->tm_hour += 1;
+  sev->tm_min += 30;
+  ev2.start = mktime(sev);
+  sev->tm_min += 30;
+  ev2.end = mktime(sev);
+  ev2.title = "After coding this";
+
+  struct event events[] = { ev, ev2 };
+
+  struct cal cal = {
+    .events = events,
+    .nevents = length(events),
+  };
 
   g_text_color.r = text_col;
   g_text_color.g = text_col;
@@ -232,21 +391,35 @@ int main(int argc, char *argv[])
 
   window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 
+  struct extra_data extra_data = {
+    .win = GTK_WINDOW(window),
+    .cal = &cal
+  };
+
+  display = gdk_display_get_default();
   darea = gtk_drawing_area_new();
   gtk_container_add(GTK_CONTAINER(window), darea);
+
+  pointer_progress = gdk_cursor_new_from_name (display, "pointer");
+  pointer_default = gdk_cursor_new_from_name (display, "default");
 
   g_signal_connect(G_OBJECT(darea), "button-press-event",
                    G_CALLBACK(on_press), (gpointer)NULL);
 
+  g_signal_connect(G_OBJECT(darea), "motion-notify-event",
+                   G_CALLBACK(on_motion), (gpointer)&extra_data);
+
   g_signal_connect(G_OBJECT(darea), "draw",
-                   G_CALLBACK(on_draw_event), (gpointer)window);
+                   G_CALLBACK(on_draw_event), (gpointer)&extra_data);
 
   g_signal_connect(window, "destroy",
       G_CALLBACK(gtk_main_quit), NULL);
 
+  gtk_widget_set_events(darea, GDK_BUTTON_PRESS_MASK
+                             | GDK_POINTER_MOTION_MASK);
   gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-  gtk_window_set_default_size(GTK_WINDOW(window), 400, 90);
-  gtk_window_set_title(GTK_WINDOW(window), "GTK window");
+  gtk_window_set_default_size(GTK_WINDOW(window), 400, 800);
+  gtk_window_set_title(GTK_WINDOW(window), "Calendar");
 
   gtk_widget_modify_bg(window, GTK_STATE_NORMAL, &color);
   gtk_widget_show_all(window);

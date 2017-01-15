@@ -1,0 +1,11 @@
+viscal
+======
+
+A native calendar that doesn't suck.
+
+Goals:
+
+  * vi/emacs-like key bindings
+  * extremely customizable / scriptable
+  * widget mode for bars/docks
+  * focus on making a really good day/week view for time blocking

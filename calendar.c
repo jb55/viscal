@@ -14,9 +14,16 @@ enum event_flags {
   , EV_DRAGGING    = 1 << 2
 };
 
+enum cal_flags {
+    CAL_MDOWN    = 1 << 0
+  , CAL_DRAGGING = 1 << 1
+};
+
 struct cal {
   struct event *events;
   int nevents;
+  enum cal_flags flags;
+  struct event *target;
 };
 
 struct extra_data {
@@ -33,6 +40,7 @@ struct event {
   // set on draw
   double width, height;
   double x, y;
+  double dragx, dragy;
 };
 
 union rgba {
@@ -52,20 +60,24 @@ union rgba {
     __typeof__ (b) _b = (b);                    \
     _a < _b ? _a : _b; })
 
+static const double BGCOLOR = 0.35;
+static const int TXTPAD = 11;
+static const int EVPAD = 2;
+static const int GAP = 0;
 static const int DEF_LMARGIN = 20;
+
 static int g_lmargin = 40;
 static int g_margin_time_w = 0;
 static union rgba g_text_color;
 static int margin_calculated = 0;
-static const double bg_color = 0.35;
-static const int TXTPAD = 11;
-static const int EVPAD = 2;
-static const int GAP = 0;
-static GdkCursor *pointer_progress;
-static GdkCursor *pointer_default;
+static GdkCursor *cursor_pointer;
+static GdkCursor *cursor_default;
 const double dashed[] = {1.0};
 
 
+static struct event* events_hit (struct event *, int, double, double);
+static int event_hit (struct event *, double, double);
+static void calendar_print_state(struct cal *cal);
 static void format_margin_time (char *, int, int);
 static void draw_hours (cairo_t *, int, int, int);
 static void draw_background (cairo_t *, int, int);
@@ -81,9 +93,59 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data);
 
 static int on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data);
 static int on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data);
+static int on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data);
+
+static int
+on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
+  struct extra_data *data = (struct extra_data*)user_data;
+  struct cal *cal = data->cal;
+
+  calendar_print_state(cal);
+
+  return 1;
+}
+
+static void
+calendar_drop(struct cal *cal, double mx, double my) {
+  if (cal->target) {
+    printf("dropped %s\n", cal->target->title);
+  }
+}
+
+static void
+event_click(struct event *event) {
+  printf("clicked %s\n", event->title);
+}
 
 static int
 on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
+  struct extra_data *data = (struct extra_data*)user_data;
+  struct cal *cal = data->cal;
+  double mx = ev->x;
+  double my = ev->y;
+
+  switch (ev->type) {
+  case GDK_BUTTON_PRESS:
+    cal->flags |= CAL_MDOWN;
+    struct event* event = events_hit(cal->events, cal->nevents, mx, my);
+    cal->target = event;
+    break;
+  case GDK_BUTTON_RELEASE:
+    if ((cal->flags & CAL_DRAGGING) != 0) {
+      // finished drag
+      calendar_drop(cal, mx, my);
+    }
+    else {
+      // clicked target
+      if (cal->target)
+        event_click(cal->target);
+    }
+    cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
+    break;
+  }
+
+  on_state_change(widget, (GdkEvent*)ev, user_data);
+
   return 1;
 }
 
@@ -96,41 +158,69 @@ event_any_flags(struct event *events, int flag, int nevents) {
   return 0;
 }
 
+static void
+calendar_print_state(struct cal *cal) {
+  printf("%s %s\r",
+         (cal->flags & CAL_DRAGGING) != 0 ? "D " : "  ",
+         (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  "
+         );
+  fflush(stdout);
+}
+
 static int
 on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
   static int prev_hit = 0;
 
   int hit = 0;
+  int needs_redraw = 0;
+
   struct extra_data *data = (struct extra_data*)user_data;
   struct cal *cal = data->cal;
   GdkWindow *gdkwin = gtk_widget_get_window(widget);
 
+  // drag detection
+  if ((cal->flags & CAL_MDOWN) != 0) {
+    if ((cal->flags & CAL_DRAGGING) == 0)
+      cal->flags |= CAL_DRAGGING;
+  }
+
   update_events_flags (cal->events, cal->nevents, ev->x, ev->y);
   hit = event_any_flags(cal->events, cal->nevents, EV_HIGHLIGHTED);
 
-  if (hit) {
-    gdk_window_set_cursor(gdkwin, pointer_progress);
-  }
-  else {
-    gdk_window_set_cursor(gdkwin, pointer_default);
-  }
+  gdk_window_set_cursor(gdkwin, hit ? cursor_pointer : cursor_default);
 
-  if (hit != prev_hit)
+  needs_redraw = hit != prev_hit;
+
+  if (needs_redraw)
     gtk_widget_queue_draw(widget);
 
   prev_hit = hit;
 
+  on_state_change(widget, (GdkEvent*)ev, user_data);
+
   return 1;
+}
+
+static struct event*
+events_hit (struct event *events, int nevents, double mx, double my) {
+  for (int i = 0; i < nevents; ++i) {
+    if (event_hit(&events[i], mx, my))
+      return &events[i];
+  }
+  return NULL;
+}
+
+static int event_hit (struct event *ev, double mx, double my) {
+  return
+    mx >= ev->x
+    && mx <= (ev->x + ev->width)
+    && my >= ev->y
+    && my <= (ev->y + ev->height);
 }
 
 static void
 update_event_flags (struct event *ev, double mx, double my) {
-  int hit =
-         mx >= ev->x
-      && mx <= (ev->x + ev->width)
-      && my >= ev->y
-      && my <= (ev->y + ev->height);
-
+  int hit = event_hit(ev, mx, my);
   if (hit) ev->flags |=  EV_HIGHLIGHTED;
   else     ev->flags &= ~EV_HIGHLIGHTED;
 }
@@ -378,9 +468,9 @@ int main(int argc, char *argv[])
   g_text_color.g = text_col;
   g_text_color.b = text_col;
 
-  color.red = bg_color * 0xffff;
-  color.green = bg_color * 0xffff;
-  color.blue = bg_color * 0xffff;
+  color.red = BGCOLOR * 0xffff;
+  color.green = BGCOLOR * 0xffff;
+  color.blue = BGCOLOR * 0xffff;
 
   /* setlocale(LC_TIME, ""); */
 
@@ -400,12 +490,13 @@ int main(int argc, char *argv[])
   darea = gtk_drawing_area_new();
   gtk_container_add(GTK_CONTAINER(window), darea);
 
-  pointer_progress = gdk_cursor_new_from_name (display, "pointer");
-  pointer_default = gdk_cursor_new_from_name (display, "default");
+  cursor_pointer = gdk_cursor_new_from_name (display, "pointer");
+  cursor_default = gdk_cursor_new_from_name (display, "default");
 
   g_signal_connect(G_OBJECT(darea), "button-press-event",
-                   G_CALLBACK(on_press), (gpointer)NULL);
-
+                   G_CALLBACK(on_press), (gpointer)&extra_data);
+  g_signal_connect(G_OBJECT(darea), "button-release-event",
+                   G_CALLBACK(on_press), (gpointer)&extra_data);
   g_signal_connect(G_OBJECT(darea), "motion-notify-event",
                    G_CALLBACK(on_motion), (gpointer)&extra_data);
 
@@ -416,6 +507,7 @@ int main(int argc, char *argv[])
       G_CALLBACK(gtk_main_quit), NULL);
 
   gtk_widget_set_events(darea, GDK_BUTTON_PRESS_MASK
+                             | GDK_BUTTON_RELEASE_MASK
                              | GDK_POINTER_MOTION_MASK);
   gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
   gtk_window_set_default_size(GTK_WINDOW(window), 400, 800);

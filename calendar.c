@@ -25,6 +25,8 @@ struct cal {
   enum cal_flags flags;
   // TODO: make multiple target selection
   struct event *target;
+  int minute_round;
+  time_t view;
 };
 
 struct extra_data {
@@ -42,6 +44,7 @@ struct event {
   double width, height;
   double x, y;
   double dragx, dragy;
+  time_t drag_time;
 };
 
 union rgba {
@@ -62,6 +65,7 @@ union rgba {
     _a < _b ? _a : _b; })
 
 static const double BGCOLOR = 0.35;
+static const int DAY_SECONDS = 86400;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
 static const int GAP = 0;
@@ -85,7 +89,7 @@ static void draw_hours (cairo_t *, int, int, int);
 static void draw_background (cairo_t *, int, int);
 static void draw_rectangle (cairo_t *, double, double);
 static void event_update (struct event *, time_t, int, int, int, int);
-static void event_draw (cairo_t *, struct event *);
+static void event_draw (cairo_t *, struct cal*, struct event *, int);
 static void update_events_flags (struct event*, int, double, double);
 static void calendar_update (struct cal *cal, int width, int height);
 static int calendar_draw (cairo_t *, struct cal*, int, int);
@@ -103,6 +107,7 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
   struct cal *cal = data->cal;
 
   calendar_print_state(cal);
+  gtk_widget_queue_draw(widget);
 
   return 1;
 }
@@ -117,8 +122,11 @@ event_create(struct event *ev) {
 
 static void
 calendar_drop(struct cal *cal, double mx, double my) {
-  if (cal->target) {
-    printf("dropped %s\n", cal->target->title);
+  struct event *ev = cal->target;
+  if (ev) {
+    time_t len = ev->end - ev->start;
+    ev->start = ev->drag_time;
+    ev->end = ev->start + len;
   }
 }
 
@@ -133,6 +141,7 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
   struct cal *cal = data->cal;
   double mx = ev->x;
   double my = ev->y;
+  int state_changed = 1;
 
   switch (ev->type) {
   case GDK_BUTTON_PRESS:
@@ -149,11 +158,22 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
       if (cal->target)
         event_click(cal->target);
     }
+    // finished dragging
     cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
+
+    // clear target drag state
+    if (cal->target) {
+      cal->target->dragx = 0.0;
+      cal->target->dragy = 0.0;
+      cal->target->drag_time = cal->target->start;
+      cal->target = NULL;
+    }
     break;
+  default: state_changed = 0; break;
   }
 
-  on_state_change(widget, (GdkEvent*)ev, user_data);
+  if (state_changed)
+    on_state_change(widget, (GdkEvent*)ev, user_data);
 
   return 1;
 }
@@ -181,7 +201,7 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
   static int prev_hit = 0;
 
   int hit = 0;
-  int needs_redraw = 0;
+  int state_changed = 0;
   int dragging_event = 0;
 
   struct extra_data *data = (struct extra_data*)user_data;
@@ -211,14 +231,12 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 
   gdk_window_set_cursor(gdkwin, hit ? cursor_pointer : cursor_default);
 
-  needs_redraw = dragging_event || hit != prev_hit;
-
-  if (needs_redraw)
-    gtk_widget_queue_draw(widget);
+  state_changed = dragging_event || hit != prev_hit;
 
   prev_hit = hit;
 
-  on_state_change(widget, (GdkEvent*)ev, user_data);
+  if (state_changed)
+    on_state_change(widget, (GdkEvent*)ev, user_data);
 
   return 1;
 }
@@ -370,30 +388,19 @@ draw_hours (cairo_t *cr, int sy, int width, int height) {
   }
 }
 
-static double time_location (time_t viewt, time_t time) {
-  struct tm view = *localtime(&viewt);
-  struct tm d    = *localtime(&time);
+static time_t
+location_to_time(time_t start, double loc) {
+  return (time_t)((double)start) + (loc * DAY_SECONDS);
+}
 
-  int view_day = view.tm_yday;
-  int day = d.tm_yday;
-
-  if (day > view_day) return 1.0;
-  if (day < view_day) return 0.0;
-
-  int hour = d.tm_hour;
-  int minute = d.tm_min;
-  int second = d.tm_sec;
-
-  int seconds =
-    (hour * 60 * 60) + (minute * 60) + second;
-
-  return ((double)seconds / 86400.0);
+static double time_to_location (time_t viewt, time_t time) {
+  return ((double)(time - viewt) / ((double)DAY_SECONDS));
 }
 
 static void
 event_update (struct event *ev, time_t view, int sx, int sy, int width, int height) {
-  double sloc = time_location(view, ev->start);
-  double eloc = time_location(view, ev->end);
+  double sloc = time_to_location(view, ev->start);
+  double eloc = time_to_location(view, ev->end);
 
   double dloc = eloc - sloc;
   double eheight = dloc * height;
@@ -406,15 +413,17 @@ event_update (struct event *ev, time_t view, int sx, int sy, int width, int heig
 }
 
 static void
-event_draw (cairo_t *cr, struct event *ev) {
+event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   // double height = Math.fmin(, MIN_EVENT_HEIGHT);
   // stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
   // 			  sloc, eloc, dloc, eheight);
-  static char bsmall[32];
-  static char buffer[1024];
+  static char bsmall[32] = {0};
+  static char buffer[1024] = {0};
 
   double x = ev->x;
   double y = ev->y;
+  time_t st = ev->start;
+  struct tm lt;
 
   union rgba c = {
     .rgba = { 1.0, 0.0, 0.0, 0.25 }
@@ -424,23 +433,31 @@ event_draw (cairo_t *cr, struct event *ev) {
     c.a += 0.25;
   }
 
-  if ((ev->flags & EV_DRAGGING) != 0) {
-    x += ev->dragx;
+  if (cal->target == ev && ((cal->flags & CAL_DRAGGING) != 0)) {
+    /* x += ev->dragx; */
     y += ev->dragy;
+    st = location_to_time(cal->view, y/height);
+    lt = *localtime(&st);
+    lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
+    lt.tm_sec = 0; // removes jitter
+    st = mktime(&lt);
+    y = time_to_location(cal->view, st) * height;
+    cal->target->drag_time = st;
   }
 
-  cairo_move_to(cr, ev->x, ev->y);
+  cairo_move_to(cr, x, y);
   // TODO: calendar color for events
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
   draw_rectangle(cr, ev->width, ev->height);
   cairo_fill(cr);
-  cairo_move_to(cr, ev->x, ev->y);
+  cairo_move_to(cr, x, y);
   draw_rectangle(cr, ev->width, ev->height);
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a*2);
   cairo_stroke(cr);
-  cairo_move_to(cr, ev->x + EVPAD, ev->y + EVPAD + TXTPAD);
+  cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD);
   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-  format_locale_time(bsmall, 32, localtime(&ev->start));
+  lt = *localtime(&st);
+  format_locale_time(bsmall, 32, &lt);
   sprintf(buffer, "%s %s", bsmall, ev->title);
   cairo_show_text(cr, buffer);
 }
@@ -453,12 +470,9 @@ calendar_update (struct cal *cal, int width, int height) {
   width -= g_lmargin+GAP;
   height -= GAP*2;
 
-  // TODO replace with proper view time
-  time_t view_time = time(NULL);
-
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
-    event_update(ev, view_time, g_lmargin, GAP, width, height);
+    event_update(ev, cal->view, g_lmargin, GAP, width, height);
   }
 }
 
@@ -474,12 +488,12 @@ calendar_draw (cairo_t *cr, struct cal *cal, int width, int height) {
   draw_background(cr, width, height);
 
   // cairo_move_to (GAP, GAP);
-  draw_hours(cr, GAP, width+g_lmargin, height);
+  draw_hours(cr, GAP, width + g_lmargin, height);
 
   // draw calendar events
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
-    event_draw(cr, ev);
+    event_draw(cr, cal, ev, height);
   }
 
   return 1;
@@ -496,11 +510,20 @@ int main(int argc, char *argv[])
 
   struct event ev;
   struct event ev2;
+  struct tm nowtm;
+  time_t now;
+  time_t today;
+  now = time(NULL);
+  nowtm = *localtime(&now);
+  nowtm.tm_hour = 0;
+  nowtm.tm_min = 0;
+  today = mktime(&nowtm);
 
   event_create(&ev);
   event_create(&ev2);
   time(&ev.start);
-  ev.end = ev.start + (60*60);
+  ev.start -= 60 * 60 * 4;
+  ev.end = ev.start + (60 * 60);
   ev.title = "Coding this";
 
   time(&ev2.start);
@@ -513,6 +536,8 @@ int main(int argc, char *argv[])
   struct cal cal = {
     .events = events,
     .nevents = length(events),
+    .view = today,
+    .minute_round = 30
   };
 
   g_text_color.r = text_col;

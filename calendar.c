@@ -80,10 +80,11 @@ static struct event* events_hit (struct event *, int, double, double);
 static int event_hit (struct event *, double, double);
 static void calendar_print_state(struct cal *cal);
 static void format_margin_time (char *, int, int);
+static void format_locale_time(char *buffer, int bsize, struct tm *tm);
 static void draw_hours (cairo_t *, int, int, int);
 static void draw_background (cairo_t *, int, int);
 static void draw_rectangle (cairo_t *, double, double);
-static void event_update (struct event *, int, int, int, int);
+static void event_update (struct event *, time_t, int, int, int, int);
 static void event_draw (cairo_t *, struct event *);
 static void update_events_flags (struct event*, int, double, double);
 static void calendar_update (struct cal *cal, int width, int height);
@@ -104,6 +105,14 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
   calendar_print_state(cal);
 
   return 1;
+}
+
+static struct event *
+event_create(struct event *ev) {
+  ev->dragx = 0;
+  ev->dragy = 0;
+  ev->title = "";
+  return ev;
 }
 
 static void
@@ -290,12 +299,12 @@ static void draw_rectangle (cairo_t *cr, double x, double y) {
 
 
 // TODO: this should handle zh_CN and others as well
-void time_remove_seconds(char *time) {
+void time_remove_seconds(char *time, int n) {
   int len = strlen(time);
   int count = 0;
   char *ws;
   for (int i = 0; i < len; ++i) {
-    if (count == 1) {
+    if (count == n) {
       ws = &time[i];
       while (*ws != '\0' && (*ws == ':' || (*ws >= '0' && *ws <= '9'))) ws++;
       len = strlen(ws);
@@ -313,7 +322,13 @@ static void
 format_margin_time(char *buffer, int bsize, int hour) {
   struct tm tm = { .tm_min = 0, .tm_hour = hour };
   strftime(buffer, bsize, "%X", &tm);
-  time_remove_seconds(buffer);
+  time_remove_seconds(buffer, 1);
+}
+
+static void
+format_locale_time(char *buffer, int bsize, struct tm *tm) {
+  strftime(buffer, bsize, "%X", tm);
+  time_remove_seconds(buffer, 2);
 }
 
 
@@ -355,10 +370,19 @@ draw_hours (cairo_t *cr, int sy, int width, int height) {
   }
 }
 
-static double time_location (struct tm *d) {
-  int hour = d->tm_hour;
-  int minute = d->tm_min;
-  int second = d->tm_sec;
+static double time_location (time_t viewt, time_t time) {
+  struct tm view = *localtime(&viewt);
+  struct tm d    = *localtime(&time);
+
+  int view_day = view.tm_yday;
+  int day = d.tm_yday;
+
+  if (day > view_day) return 1.0;
+  if (day < view_day) return 0.0;
+
+  int hour = d.tm_hour;
+  int minute = d.tm_min;
+  int second = d.tm_sec;
 
   int seconds =
     (hour * 60 * 60) + (minute * 60) + second;
@@ -367,9 +391,10 @@ static double time_location (struct tm *d) {
 }
 
 static void
-event_update (struct event *ev, int sx, int sy, int width, int height) {
-  double sloc = time_location(localtime(&ev->start));
-  double eloc = time_location(localtime(&ev->end));
+event_update (struct event *ev, time_t view, int sx, int sy, int width, int height) {
+  double sloc = time_location(view, ev->start);
+  double eloc = time_location(view, ev->end);
+
   double dloc = eloc - sloc;
   double eheight = dloc * height;
   double y = (sloc * height) + sy;
@@ -385,12 +410,23 @@ event_draw (cairo_t *cr, struct event *ev) {
   // double height = Math.fmin(, MIN_EVENT_HEIGHT);
   // stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
   // 			  sloc, eloc, dloc, eheight);
+  static char bsmall[32];
+  static char buffer[1024];
+
+  double x = ev->x;
+  double y = ev->y;
+
   union rgba c = {
     .rgba = { 1.0, 0.0, 0.0, 0.25 }
   };
 
   if ((ev->flags & EV_HIGHLIGHTED) != 0) {
     c.a += 0.25;
+  }
+
+  if ((ev->flags & EV_DRAGGING) != 0) {
+    x += ev->dragx;
+    y += ev->dragy;
   }
 
   cairo_move_to(cr, ev->x, ev->y);
@@ -404,7 +440,9 @@ event_draw (cairo_t *cr, struct event *ev) {
   cairo_stroke(cr);
   cairo_move_to(cr, ev->x + EVPAD, ev->y + EVPAD + TXTPAD);
   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-  cairo_show_text(cr, ev->title);
+  format_locale_time(bsmall, 32, localtime(&ev->start));
+  sprintf(buffer, "%s %s", bsmall, ev->title);
+  cairo_show_text(cr, buffer);
 }
 
 static void
@@ -415,9 +453,12 @@ calendar_update (struct cal *cal, int width, int height) {
   width -= g_lmargin+GAP;
   height -= GAP*2;
 
+  // TODO replace with proper view time
+  time_t view_time = time(NULL);
+
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
-    event_update(ev, g_lmargin, GAP, width, height);
+    event_update(ev, view_time, g_lmargin, GAP, width, height);
   }
 }
 
@@ -455,21 +496,16 @@ int main(int argc, char *argv[])
 
   struct event ev;
   struct event ev2;
-  struct tm *sev;
 
+  event_create(&ev);
+  event_create(&ev2);
   time(&ev.start);
-  sev = localtime(&ev.start);
-  sev->tm_hour += 1;
-  ev.end = mktime(sev);
+  ev.end = ev.start + (60*60);
   ev.title = "Coding this";
 
   time(&ev2.start);
-  sev = localtime(&ev2.start);
-  sev->tm_hour += 1;
-  sev->tm_min += 30;
-  ev2.start = mktime(sev);
-  sev->tm_min += 30;
-  ev2.end = mktime(sev);
+  ev2.start = ev.start + (60*60*2);
+  ev2.end = ev2.start + (60*30);
   ev2.title = "After coding this";
 
   struct event events[] = { ev, ev2 };

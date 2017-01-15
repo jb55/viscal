@@ -23,6 +23,7 @@ struct cal {
   struct event *events;
   int nevents;
   enum cal_flags flags;
+  // TODO: make multiple target selection
   struct event *target;
 };
 
@@ -172,10 +173,14 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 
   int hit = 0;
   int needs_redraw = 0;
+  int dragging_event = 0;
 
   struct extra_data *data = (struct extra_data*)user_data;
   struct cal *cal = data->cal;
   GdkWindow *gdkwin = gtk_widget_get_window(widget);
+
+  double px = ev->x;
+  double py = ev->y;
 
   // drag detection
   if ((cal->flags & CAL_MDOWN) != 0) {
@@ -183,12 +188,21 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
       cal->flags |= CAL_DRAGGING;
   }
 
+  // dragging logic
+  if ((cal->flags & CAL_DRAGGING) != 0) {
+    if (cal->target) {
+      dragging_event = 1;
+      cal->target->dragx = px - cal->target->x;
+      cal->target->dragy = py - cal->target->y;
+    }
+  }
+
   update_events_flags (cal->events, cal->nevents, ev->x, ev->y);
   hit = event_any_flags(cal->events, cal->nevents, EV_HIGHLIGHTED);
 
   gdk_window_set_cursor(gdkwin, hit ? cursor_pointer : cursor_default);
 
-  needs_redraw = hit != prev_hit;
+  needs_redraw = dragging_event || hit != prev_hit;
 
   if (needs_redraw)
     gtk_widget_queue_draw(widget);

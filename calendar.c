@@ -127,8 +127,7 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
   switch (ev->type) {
   case GDK_BUTTON_PRESS:
     cal->flags |= CAL_MDOWN;
-    struct event* event = events_hit(cal->events, cal->nevents, mx, my);
-    cal->target = event;
+    cal->target = events_hit(cal->events, cal->nevents, mx, my);
     break;
   case GDK_BUTTON_RELEASE:
     if ((cal->flags & CAL_DRAGGING) != 0) {
@@ -248,7 +247,7 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
     format_margin_time(buffer, 32, 23);
     cairo_text_extents(cr, buffer, &exts);
     g_margin_time_w = exts.width;
-    g_lmargin = max(g_margin_time_w + EVPAD*2, DEF_LMARGIN);
+    g_lmargin = g_margin_time_w + EVPAD*2;
 
     margin_calculated = 1;
   }
@@ -276,19 +275,21 @@ static void draw_rectangle (cairo_t *cr, double x, double y) {
 }
 
 
+// TODO: this should handle zh_CN and others as well
 void time_remove_seconds(char *time) {
   int len = strlen(time);
   int count = 0;
   char *ws;
   for (int i = 0; i < len; ++i) {
-    if (count == 2) {
+    if (count == 1) {
       ws = &time[i];
-      while (*ws != '\0' && (*ws >= '0' && *ws <= '9')) ws++;
+      while (*ws != '\0' && (*ws == ':' || (*ws >= '0' && *ws <= '9'))) ws++;
       len = strlen(ws);
       memcpy(&time[i-1], ws, len);
       time[i-1+len] = '\0';
       return;
     }
+    // FIXME: instead of (==':'), we want (!= 0..9), in a unicode-enumerated way
     count += time[i] == ':' ? 1 : 0;
   }
 }
@@ -511,7 +512,7 @@ int main(int argc, char *argv[])
                              | GDK_POINTER_MOTION_MASK);
   gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
   gtk_window_set_default_size(GTK_WINDOW(window), 400, 800);
-  gtk_window_set_title(GTK_WINDOW(window), "Calendar");
+  gtk_window_set_title(GTK_WINDOW(window), "viscal");
 
   gtk_widget_modify_bg(window, GTK_STATE_NORMAL, &color);
   gtk_widget_show_all(window);

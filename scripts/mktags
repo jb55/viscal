@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+DEPS="$@"
+DIRS="$(pkg-config --cflags-only-I $DEPS | sed 's/\ \?-I/ /g')"
+FILES=""
+
+for dir in $(tr ' ' '\n' <<< "$DIRS"); do
+  FILES+=$(find "$dir" -type f -name '*.h')
+done
+
+<<<"$FILES" xargs etags --declarations -o -

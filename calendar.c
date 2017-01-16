@@ -1,8 +1,10 @@
 
 #include <cairo/cairo.h>
 #include <gtk/gtk.h>
+#include <libical/ical.h>
 #include <time.h>
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include <locale.h>
 
@@ -82,6 +84,7 @@ const double dashed[] = {1.0};
 
 static struct event* events_hit (struct event *, int, double, double);
 static int event_hit (struct event *, double, double);
+static icalcomponent* calendar_load_ical(struct cal *cal, char *path);
 static void calendar_print_state(struct cal *cal);
 static void format_margin_time (char *, int, int);
 static void format_locale_time(char *buffer, int bsize, struct tm *tm);
@@ -118,6 +121,40 @@ event_create(struct event *ev) {
   ev->dragy = 0;
   ev->title = "";
   return ev;
+}
+
+static char *
+file_load(char *path) {
+  FILE *f = fopen(path, "rb");
+  fseek(f, 0, SEEK_END);
+  long fsize = ftell(f);
+  fseek(f, 0, SEEK_SET);
+
+  char *string = malloc(fsize);
+  fread(string, fsize, 1, f);
+  fclose(f);
+  return string;
+}
+
+static icalcomponent *
+calendar_load_ical(struct cal *cal, char *path) {
+  icalcomponent *prop;
+  icalcomponent_kind kind = ICAL_VEVENT_COMPONENT;
+  // TODO: free icalcomponent somewhere
+  const char *str = file_load(path);
+  icalcomponent *component = icalparser_parse_string(str);
+  if (!component) return NULL;
+  printf("got here\n");
+  icalcomponent *i = icalcomponent_get_first_component(component, kind);
+
+  for(i = icalcomponent_get_first_component(component, kind); i;
+      i = icalcomponent_get_next_component(component, kind))
+  {
+    printf("%s\n", icalcomponent_get_summary(i));
+  }
+
+  free((void*)str);
+  return component;
 }
 
 static void
@@ -539,6 +576,8 @@ int main(int argc, char *argv[])
     .view = today,
     .minute_round = 30
   };
+
+  calendar_load_ical(&cal, "/home/jb55/Downloads/mycalendar.ics");
 
   g_text_color.r = text_col;
   g_text_color.g = text_col;

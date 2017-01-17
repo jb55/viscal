@@ -22,8 +22,9 @@ enum cal_flags {
 };
 
 struct cal {
-  struct event *events;
-  int nevents;
+  struct icalcomponent *calendars[128];
+  int ncalendars;
+
   enum cal_flags flags;
   // TODO: make multiple target selection
   struct event *target;
@@ -39,7 +40,7 @@ struct extra_data {
 struct event {
   time_t start;
   time_t end;
-  char *title;
+  char *summary;
   enum event_flags flags;
 
   // set on draw
@@ -86,6 +87,7 @@ static struct event* events_hit (struct event *, int, double, double);
 static int event_hit (struct event *, double, double);
 static icalcomponent* calendar_load_ical(struct cal *cal, char *path);
 static void calendar_print_state(struct cal *cal);
+static void calendar_create(struct cal *cal);
 static void format_margin_time (char *, int, int);
 static void format_locale_time(char *buffer, int bsize, struct tm *tm);
 static void draw_hours (cairo_t *, int, int, int);
@@ -104,6 +106,20 @@ static int on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data);
 static int on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data);
 static int on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data);
 
+static void
+calendar_create(struct cal *cal) {
+  now = time(NULL);
+  nowtm = *localtime(&now);
+  nowtm.tm_hour = 0;
+  nowtm.tm_min = 0;
+  today = mktime(&nowtm);
+
+  cal->ncalendars = 0;
+  cal->minute_round = 30;
+  cal->view = today;
+
+}
+
 static int
 on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
   struct extra_data *data = (struct extra_data*)user_data;
@@ -119,7 +135,7 @@ static struct event *
 event_create(struct event *ev) {
   ev->dragx = 0;
   ev->dragy = 0;
-  ev->title = "";
+  ev->summary = "";
   return ev;
 }
 
@@ -136,25 +152,26 @@ file_load(char *path) {
   return string;
 }
 
+static void
+event_from_vevent(struct *event event, icalcomponent *vevent) {
+  event->summary = icalcomponent_get_summary(vevent);
+  event->start = icaltime_as_timet(icalcomponent_get_dtstart(vevent));
+  event->end = icaltime_as_timet(icalcomponent_get_dtend(vevent));
+}
+
 static icalcomponent *
-calendar_load_ical(struct cal *cal, char *path) {
+calendar_load_ical(char *path) {
   icalcomponent *prop;
   icalcomponent_kind kind = ICAL_VEVENT_COMPONENT;
   // TODO: free icalcomponent somewhere
   const char *str = file_load(path);
-  icalcomponent *component = icalparser_parse_string(str);
+  icalcomponent *calendar = icalparser_parse_string(str);
   if (!component) return NULL;
-  printf("got here\n");
-  icalcomponent *i = icalcomponent_get_first_component(component, kind);
 
-  for(i = icalcomponent_get_first_component(component, kind); i;
-      i = icalcomponent_get_next_component(component, kind))
-  {
-    printf("%s\n", icalcomponent_get_summary(i));
-  }
+  cal->calendars[cal->calendars++] = calendar;
 
   free((void*)str);
-  return component;
+  return calendar;
 }
 
 static void
@@ -545,37 +562,25 @@ int main(int argc, char *argv[])
   char buffer[32];
   double text_col = 0.6;
 
-  struct event ev;
-  struct event ev2;
+  struct cal cal;
   struct tm nowtm;
-  time_t now;
   time_t today;
-  now = time(NULL);
-  nowtm = *localtime(&now);
-  nowtm.tm_hour = 0;
-  nowtm.tm_min = 0;
-  today = mktime(&nowtm);
 
-  event_create(&ev);
-  event_create(&ev2);
-  time(&ev.start);
-  ev.start -= 60 * 60 * 4;
-  ev.end = ev.start + (60 * 60);
-  ev.title = "Coding this";
+  /* event_create(&ev); */
+  /* event_create(&ev2); */
+  /* time(&ev.start); */
+  /* ev.start -= 60 * 60 * 4; */
+  /* ev.end = ev.start + (60 * 60); */
+  /* ev.title = "Coding this"; */
 
-  time(&ev2.start);
-  ev2.start = ev.start + (60*60*2);
-  ev2.end = ev2.start + (60*30);
-  ev2.title = "After coding this";
+  /* time(&ev2.start); */
+  /* ev2.start = ev.start + (60*60*2); */
+  /* ev2.end = ev2.start + (60*30); */
+  /* ev2.title = "After coding this"; */
 
   struct event events[] = { ev, ev2 };
 
-  struct cal cal = {
-    .events = events,
-    .nevents = length(events),
-    .view = today,
-    .minute_round = 30
-  };
+  calendar_create(&cal);
 
   calendar_load_ical(&cal, "/home/jb55/Downloads/mycalendar.ics");
 

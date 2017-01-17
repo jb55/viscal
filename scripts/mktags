@@ -10,4 +10,4 @@ for dir in $(tr ' ' '\n' <<< "$DIRS"); do
   FILES+=$(find "$dir" -type f -name '*.h')
 done
 
-<<<"$FILES" xargs etags --declarations -o -
+<<<"$FILES" xargs etags -o - calendar.c

@@ -18,7 +18,7 @@ $(BIN): $(BIN).c Makefile
 	$(CC) $(CFLAGS) -o $@ $<
 
 TAGS:
-	./scripts/mktags $(DEPS) > $@
+	./scripts/mktags libical > $@
 
 clean:
 	rm -f $(BIN)

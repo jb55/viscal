@@ -2,6 +2,7 @@
 #include <cairo/cairo.h>
 #include <gtk/gtk.h>
 #include <libical/ical.h>
+#include <assert.h>
 #include <time.h>
 #include <string.h>
 #include <stdlib.h>
@@ -9,53 +10,6 @@
 #include <locale.h>
 
 #define length(array) (sizeof((array))/sizeof((array)[0]))
-
-enum event_flags {
-    EV_SELECTED    = 1 << 0
-  , EV_HIGHLIGHTED = 1 << 1
-  , EV_DRAGGING    = 1 << 2
-};
-
-enum cal_flags {
-    CAL_MDOWN    = 1 << 0
-  , CAL_DRAGGING = 1 << 1
-};
-
-struct cal {
-  struct icalcomponent *calendars[128];
-  int ncalendars;
-
-  enum cal_flags flags;
-  // TODO: make multiple target selection
-  struct event *target;
-  int minute_round;
-  time_t view;
-};
-
-struct extra_data {
-  GtkWindow *win;
-  struct cal *cal;
-};
-
-struct event {
-  time_t start;
-  time_t end;
-  char *summary;
-  enum event_flags flags;
-
-  // set on draw
-  double width, height;
-  double x, y;
-  double dragx, dragy;
-  time_t drag_time;
-};
-
-union rgba {
-  double rgba[4];
-  struct {
-    double r, g, b, a;
-  };
-};
 
 #define max(a,b)                                \
   ({ __typeof__ (a) _a = (a);                   \
@@ -69,38 +23,100 @@ union rgba {
 
 static const double BGCOLOR = 0.35;
 static const int DAY_SECONDS = 86400;
+static const int MAX_EVENTS = 1024;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
 static const int GAP = 0;
 static const int DEF_LMARGIN = 20;
 
+
+enum event_flags {
+    EV_SELECTED    = 1 << 0
+  , EV_HIGHLIGHTED = 1 << 1
+  , EV_DRAGGING    = 1 << 2
+};
+
+enum cal_flags {
+    CAL_MDOWN    = 1 << 0
+  , CAL_DRAGGING = 1 << 1
+};
+
+struct event {
+  icalcomponent *vevent;
+  icalcomponent *calendar;
+
+  enum event_flags flags;
+  // set on draw
+  double width, height;
+  double x, y;
+  double dragx, dragy;
+  time_t drag_time;
+};
+
+struct cal {
+  icalcomponent * calendars[128];
+  int ncalendars;
+
+  struct event events[MAX_EVENTS];
+  int nevents;
+
+  enum cal_flags flags;
+  // TODO: make multiple target selection
+  struct event *target;
+  int minute_round;
+
+  time_t view_start;
+  time_t view_end;
+};
+
+struct extra_data {
+  GtkWindow *win;
+  struct cal *cal;
+};
+
+union rgba {
+  double rgba[4];
+  struct {
+    double r, g, b, a;
+  };
+};
+
 static int g_lmargin = 40;
+static icaltimezone *g_timezone;
 static int g_margin_time_w = 0;
 static union rgba g_text_color;
 static int margin_calculated = 0;
 static GdkCursor *cursor_pointer;
 static GdkCursor *cursor_default;
-const double dashed[] = {1.0};
-
+static const double dashed[] = {1.0};
 
 static struct event* events_hit (struct event *, int, double, double);
 static int event_hit (struct event *, double, double);
-static icalcomponent* calendar_load_ical(struct cal *cal, char *path);
-static void calendar_print_state(struct cal *cal);
-static void calendar_create(struct cal *cal);
+
+static icalcomponent* calendar_load_ical(struct cal *, char *);
+static void calendar_print_state(struct cal *);
+static void calendar_create(struct cal *);
+static void calendar_update (struct cal *, int, int);
+static int calendar_draw (cairo_t *, struct cal*, int, int);
+
 static void format_margin_time (char *, int, int);
-static void format_locale_time(char *buffer, int bsize, struct tm *tm);
+static void format_locale_time(char *, int, struct tm *);
 static void draw_hours (cairo_t *, int, int, int);
 static void draw_background (cairo_t *, int, int);
 static void draw_rectangle (cairo_t *, double, double);
-static void event_update (struct event *, time_t, int, int, int, int);
+
+static int vevent_in_view(icalcomponent *, time_t, time_t);
+static void events_for_view(struct cal *, time_t, time_t);
+static void event_update (struct event *, time_t, time_t, int, int, int, int);
 static void event_draw (cairo_t *, struct cal*, struct event *, int);
-static void update_events_flags (struct event*, int, double, double);
-static void calendar_update (struct cal *cal, int width, int height);
-static int calendar_draw (cairo_t *, struct cal*, int, int);
+static inline icaltime_span event_get_span (struct event*);
+static void events_update_flags (struct event*, int, double, double);
+
 
 static gboolean
 on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data);
+
+static void on_change_view(struct cal*);
 
 static int on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data);
 static int on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data);
@@ -108,6 +124,11 @@ static int on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data);
 
 static void
 calendar_create(struct cal *cal) {
+  time_t now;
+  time_t today;
+  int start_at = 0;
+  struct tm nowtm;
+
   now = time(NULL);
   nowtm = *localtime(&now);
   nowtm.tm_hour = 0;
@@ -115,9 +136,15 @@ calendar_create(struct cal *cal) {
   today = mktime(&nowtm);
 
   cal->ncalendars = 0;
+  cal->nevents = 0;
   cal->minute_round = 30;
-  cal->view = today;
+  cal->view_start = today + start_at;
+  cal->view_end = today + DAY_SECONDS;
+}
 
+static void
+on_change_view(struct cal *cal) {
+  events_for_view(cal, cal->view_start, cal->view_end);
 }
 
 static int
@@ -129,14 +156,6 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
   gtk_widget_queue_draw(widget);
 
   return 1;
-}
-
-static struct event *
-event_create(struct event *ev) {
-  ev->dragx = 0;
-  ev->dragy = 0;
-  ev->summary = "";
-  return ev;
 }
 
 static char *
@@ -152,41 +171,115 @@ file_load(char *path) {
   return string;
 }
 
-static void
-event_from_vevent(struct *event event, icalcomponent *vevent) {
-  event->summary = icalcomponent_get_summary(vevent);
-  event->start = icaltime_as_timet(icalcomponent_get_dtstart(vevent));
-  event->end = icaltime_as_timet(icalcomponent_get_dtend(vevent));
+static int
+span_overlaps(time_t start1, time_t end1, time_t start2, time_t end2) {
+  return max(0, min(end1, end2) - max(start1, start2));
 }
 
+static int
+vevent_in_view(icalcomponent *vevent, time_t start, time_t end) {
+  icaltime_span span = icalcomponent_get_span(vevent); 
+  return span_overlaps(span.start, span.end, start, end);
+}
+
+static void
+events_for_view(struct cal *cal, time_t start, time_t end)
+{
+  int i, count = 0;
+  struct event *event;
+  icalcomponent *vevent;
+  icalcomponent *ical;
+
+  for (i = 0; i < cal->ncalendars; ++i) {
+    ical = cal->calendars[i];
+    for (vevent = icalcomponent_get_first_component(ical, ICAL_VEVENT_COMPONENT);
+         vevent != NULL && count < MAX_EVENTS;
+         vevent = icalcomponent_get_next_component(ical, ICAL_VEVENT_COMPONENT))
+    {
+      if (vevent_in_view(vevent, start, end)) {
+        event = &cal->events[count++];
+        /* printf("event in view %s\n", icalcomponent_get_summary(vevent)); */
+        event->vevent = vevent;
+        event->calendar = ical;
+      }
+    }
+    cal->nevents = count;
+  }
+}
+
+
 static icalcomponent *
-calendar_load_ical(char *path) {
+calendar_load_ical(struct cal *cal, char *path) {
+  // TODO: don't load duplicate calendars
+
   icalcomponent *prop;
-  icalcomponent_kind kind = ICAL_VEVENT_COMPONENT;
   // TODO: free icalcomponent somewhere
   const char *str = file_load(path);
   icalcomponent *calendar = icalparser_parse_string(str);
-  if (!component) return NULL;
+  if (!calendar) return NULL;
 
-  cal->calendars[cal->calendars++] = calendar;
+  // TODO: support >128 calendars
+  if (length(cal->calendars) == cal->ncalendars)
+    return NULL;
+
+  cal->calendars[cal->ncalendars++] = calendar;
 
   free((void*)str);
   return calendar;
 }
 
+
+static void
+event_set_start(struct event *ev, time_t time, const icaltimezone *zone) {
+  if (zone == NULL)
+    zone = g_timezone;
+  icaltimetype ictime = icaltime_from_timet_with_zone(time, 1, zone);
+  icalcomponent_set_dtstart(ev->vevent, ictime);
+}
+
+static void
+event_set_end(struct event *ev, time_t time, const icaltimezone *zone) {
+  if (zone == NULL)
+    zone = g_timezone;
+  icaltimetype ictime = icaltime_from_timet_with_zone(time, 1, zone);
+  icalcomponent_set_dtend(ev->vevent, ictime);
+}
+
+
+
 static void
 calendar_drop(struct cal *cal, double mx, double my) {
   struct event *ev = cal->target;
   if (ev) {
-    time_t len = ev->end - ev->start;
-    ev->start = ev->drag_time;
-    ev->end = ev->start + len;
+    icaltime_span span = icalcomponent_get_span(ev->vevent);
+    icaltimetype start = icalcomponent_get_dtstart(ev->vevent);
+
+    time_t len = span.end - span.start;
+    // XXX: should dragging timezone be the local timezone?
+    // XXX: this will probably destroy the timezone, we don't want that
+    // TODO: convert timezone on drag?
+
+    printf("%s drag-time %d start %d diff %d\n",
+           icalcomponent_get_summary(ev->vevent),
+           ev->drag_time,
+           span.start,
+           ev->drag_time - span.start);
+
+    icaltimetype startt =
+      icaltime_from_timet(ev->drag_time, 0);
+
+    icalcomponent_set_dtstart(ev->vevent, startt);
+
+    icaltimetype endt =
+      icaltime_from_timet(ev->drag_time + len, 0);
+
+    icalcomponent_set_dtend(ev->vevent, endt);
   }
 }
 
 static void
 event_click(struct event *event) {
-  printf("clicked %s\n", event->title);
+  printf("clicked %s\n", icalcomponent_get_summary(event->vevent));
 }
 
 static int
@@ -219,7 +312,8 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
     if (cal->target) {
       cal->target->dragx = 0.0;
       cal->target->dragy = 0.0;
-      cal->target->drag_time = cal->target->start;
+      cal->target->drag_time =
+        icaltime_as_timet(icalcomponent_get_dtstart(cal->target->vevent));
       cal->target = NULL;
     }
     break;
@@ -232,31 +326,35 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
   return 1;
 }
 
-static int
-event_any_flags(struct event *events, int flag, int nevents) {
+static struct event*
+event_any_flags(struct event *events, int nevents, int flag) {
   for (int i = 0; i < nevents; i++) {
     if ((events[i].flags & flag) != 0)
-      return 1;
+      return &events[i];
   }
-  return 0;
+  return NULL;
 }
 
 static void
 calendar_print_state(struct cal *cal) {
-  printf("%s %s\r",
+  static int c = 0;
+  printf("%s %s %d\r",
          (cal->flags & CAL_DRAGGING) != 0 ? "D " : "  ",
-         (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  "
+         (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  ",
+         c++
          );
   fflush(stdout);
 }
 
 static int
 on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
-  static int prev_hit = 0;
+  static struct event* prev_hit = NULL;
 
-  int hit = 0;
+  struct event *hit = NULL;
   int state_changed = 0;
   int dragging_event = 0;
+  double mx = ev->x;
+  double my = ev->y;
 
   struct extra_data *data = (struct extra_data*)user_data;
   struct cal *cal = data->cal;
@@ -280,13 +378,15 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
     }
   }
 
-  update_events_flags (cal->events, cal->nevents, ev->x, ev->y);
+  events_update_flags (cal->events, cal->nevents, mx, my);
   hit = event_any_flags(cal->events, cal->nevents, EV_HIGHLIGHTED);
 
   gdk_window_set_cursor(gdkwin, hit ? cursor_pointer : cursor_default);
 
   state_changed = dragging_event || hit != prev_hit;
 
+  printf("%p %p\r", hit, prev_hit);
+  fflush(stdout);
   prev_hit = hit;
 
   if (state_changed)
@@ -304,7 +404,8 @@ events_hit (struct event *events, int nevents, double mx, double my) {
   return NULL;
 }
 
-static int event_hit (struct event *ev, double mx, double my) {
+static int
+event_hit (struct event *ev, double mx, double my) {
   return
     mx >= ev->x
     && mx <= (ev->x + ev->width)
@@ -320,7 +421,7 @@ update_event_flags (struct event *ev, double mx, double my) {
 }
 
 static void
-update_events_flags (struct event *events, int nevents, double mx, double my) {
+events_update_flags (struct event *events, int nevents, double mx, double my) {
   for (int i = 0; i < nevents; ++i) {
     struct event *ev = &events[i];
     update_event_flags (ev, mx, my);
@@ -405,7 +506,9 @@ format_locale_time(char *buffer, int bsize, struct tm *tm) {
 
 
 static void
-draw_hours (cairo_t *cr, int sy, int width, int height) {
+draw_hours (cairo_t *cr, time_t start, time_t end,
+            double zoom, int sy, int width, int height)
+{
   double section_height = ((double)height) / 48.0;
   char buffer[32] = {0};
   const double col = 0.4;
@@ -443,18 +546,21 @@ draw_hours (cairo_t *cr, int sy, int width, int height) {
 }
 
 static time_t
-location_to_time(time_t start, double loc) {
-  return (time_t)((double)start) + (loc * DAY_SECONDS);
+location_to_time(time_t start, time_t end, double loc) {
+  return (time_t)((double)start) + (loc * (end - start));
 }
 
-static double time_to_location (time_t viewt, time_t time) {
-  return ((double)(time - viewt) / ((double)DAY_SECONDS));
+static double time_to_location (time_t start, time_t end, time_t time) {
+  return ((double)(time - start) / ((double)(end - start)));
 }
 
 static void
-event_update (struct event *ev, time_t view, int sx, int sy, int width, int height) {
-  double sloc = time_to_location(view, ev->start);
-  double eloc = time_to_location(view, ev->end);
+event_update (struct event *ev, time_t view_start, time_t view_end,
+              int sx, int sy, int width, int height)
+{
+  icaltime_span span = icalcomponent_get_span(ev->vevent);
+  double sloc = time_to_location(view_start, view_end, span.start);
+  double eloc = time_to_location(view_start, view_end, span.end); 
 
   double dloc = eloc - sloc;
   double eheight = dloc * height;
@@ -476,7 +582,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
 
   double x = ev->x;
   double y = ev->y;
-  time_t st = ev->start;
+  time_t st = icalcomponent_get_span(ev->vevent).start;
   struct tm lt;
 
   union rgba c = {
@@ -487,15 +593,16 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
     c.a += 0.25;
   }
 
+  // grid logic
   if (cal->target == ev && ((cal->flags & CAL_DRAGGING) != 0)) {
     /* x += ev->dragx; */
     y += ev->dragy;
-    st = location_to_time(cal->view, y/height);
+    st = location_to_time(cal->view_start, cal->view_end, y/height);
     lt = *localtime(&st);
     lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
     lt.tm_sec = 0; // removes jitter
     st = mktime(&lt);
-    y = time_to_location(cal->view, st) * height;
+    y = time_to_location(cal->view_start, cal->view_end, st) * height;
     cal->target->drag_time = st;
   }
 
@@ -505,14 +612,14 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   draw_rectangle(cr, ev->width, ev->height);
   cairo_fill(cr);
   cairo_move_to(cr, x, y);
-  draw_rectangle(cr, ev->width, ev->height);
+  cairo_rel_line_to(cr, ev->width, 0);
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a*2);
   cairo_stroke(cr);
   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD);
   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
   lt = *localtime(&st);
   format_locale_time(bsmall, 32, &lt);
-  sprintf(buffer, "%s %s", bsmall, ev->title);
+  sprintf(buffer, "%s %s", bsmall, icalcomponent_get_summary(ev->vevent));
   cairo_show_text(cr, buffer);
 }
 
@@ -526,7 +633,8 @@ calendar_update (struct cal *cal, int width, int height) {
 
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
-    event_update(ev, cal->view, g_lmargin, GAP, width, height);
+    event_update(ev, cal->view_start, cal->view_end,
+                 g_lmargin, GAP, width, height);
   }
 }
 
@@ -563,26 +671,13 @@ int main(int argc, char *argv[])
   double text_col = 0.6;
 
   struct cal cal;
-  struct tm nowtm;
-  time_t today;
-
-  /* event_create(&ev); */
-  /* event_create(&ev2); */
-  /* time(&ev.start); */
-  /* ev.start -= 60 * 60 * 4; */
-  /* ev.end = ev.start + (60 * 60); */
-  /* ev.title = "Coding this"; */
-
-  /* time(&ev2.start); */
-  /* ev2.start = ev.start + (60*60*2); */
-  /* ev2.end = ev2.start + (60*30); */
-  /* ev2.title = "After coding this"; */
-
-  struct event events[] = { ev, ev2 };
 
   calendar_create(&cal);
-
   calendar_load_ical(&cal, "/home/jb55/Downloads/mycalendar.ics");
+  on_change_view(&cal);
+
+  // TODO: get system timezone
+  g_timezone = icaltimezone_get_builtin_timezone("America/Vancouver");
 
   g_text_color.r = text_col;
   g_text_color.g = text_col;

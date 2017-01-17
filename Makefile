@@ -7,6 +7,7 @@ DEPS=libical gtk+-3.0
 
 CFLAGS=-Wall \
        -Wextra \
+       -O0 \
        -Wno-unused-parameter \
        -Werror=int-conversion \
 			 -std=c99 \

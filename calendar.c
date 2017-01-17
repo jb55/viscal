@@ -506,8 +506,7 @@ format_locale_time(char *buffer, int bsize, struct tm *tm) {
 
 
 static void
-draw_hours (cairo_t *cr, time_t start, time_t end,
-            double zoom, int sy, int width, int height)
+draw_hours (cairo_t *cr, int sy, int width, int height)
 {
   double section_height = ((double)height) / 48.0;
   char buffer[32] = {0};

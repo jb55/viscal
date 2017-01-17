@@ -259,12 +259,6 @@ calendar_drop(struct cal *cal, double mx, double my) {
     // XXX: this will probably destroy the timezone, we don't want that
     // TODO: convert timezone on drag?
 
-    printf("%s drag-time %d start %d diff %d\n",
-           icalcomponent_get_summary(ev->vevent),
-           ev->drag_time,
-           span.start,
-           ev->drag_time - span.start);
-
     icaltimetype startt =
       icaltime_from_timet(ev->drag_time, 0);
 
@@ -385,7 +379,6 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 
   state_changed = dragging_event || hit != prev_hit;
 
-  printf("%p %p\r", hit, prev_hit);
   fflush(stdout);
   prev_hit = hit;
 
@@ -579,21 +572,26 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   static char bsmall[32] = {0};
   static char buffer[1024] = {0};
 
+  int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
   double x = ev->x;
   double y = ev->y;
   time_t st = icalcomponent_get_span(ev->vevent).start;
   struct tm lt;
 
   union rgba c = {
-    .rgba = { 1.0, 0.0, 0.0, 0.25 }
+    .rgba = { 106.0 / 255.0
+            , 190.0 / 255.0
+            , 219.0 / 255.0
+            , 1.0
+            }
   };
 
-  if ((ev->flags & EV_HIGHLIGHTED) != 0) {
-    c.a += 0.25;
+  if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
+    c.a *= 0.95;
   }
 
   // grid logic
-  if (cal->target == ev && ((cal->flags & CAL_DRAGGING) != 0)) {
+  if (is_dragging) {
     /* x += ev->dragx; */
     y += ev->dragy;
     st = location_to_time(cal->view_start, cal->view_end, y/height);
@@ -612,7 +610,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   cairo_fill(cr);
   cairo_move_to(cr, x, y);
   cairo_rel_line_to(cr, ev->width, 0);
-  cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a*2);
+  cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
   cairo_stroke(cr);
   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD);
   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);

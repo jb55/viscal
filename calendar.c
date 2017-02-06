@@ -67,6 +67,8 @@ struct cal {
 
   time_t view_start;
   time_t view_end;
+
+  int height, width;
 };
 
 struct extra_data {
@@ -96,8 +98,8 @@ static int event_hit (struct event *, double, double);
 static icalcomponent* calendar_load_ical(struct cal *, char *);
 static void calendar_print_state(struct cal *);
 static void calendar_create(struct cal *);
-static void calendar_update (struct cal *, int, int);
-static int calendar_draw (cairo_t *, struct cal*, int, int);
+static void calendar_update (struct cal *);
+static int calendar_draw (cairo_t *, struct cal*);
 
 static void format_margin_time (char *, int, int);
 static void format_locale_time(char *, int, struct tm *);
@@ -112,6 +114,7 @@ static void event_draw (cairo_t *, struct cal*, struct event *, int);
 static inline icaltime_span event_get_span (struct event*);
 static void events_update_flags (struct event*, int, double, double);
 
+static time_t location_to_time(time_t start, time_t end, double loc);
 
 static gboolean
 on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data);
@@ -272,8 +275,22 @@ calendar_drop(struct cal *cal, double mx, double my) {
 }
 
 static void
-event_click(struct event *event) {
+event_click(struct cal *cal, struct event *event, int mx, int my) {
   printf("clicked %s\n", icalcomponent_get_summary(event->vevent));
+
+  location_to_time(cal->view_start, cal->view_end,
+                   (double)my / (double)cal->height);
+}
+
+static void
+calendar_view_clicked(struct cal *cal, int mx, int my) {
+  double loc = (double)my / (double)cal->height;
+  time_t time = location_to_time(cal->view_start, cal->view_end, loc);
+
+  // TODO create event
+  // TODO create event
+
+  printf("(%d,%d) clicked %d\n", mx, my, time);
 }
 
 static int
@@ -297,7 +314,9 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
     else {
       // clicked target
       if (cal->target)
-        event_click(cal->target);
+        event_click(cal, cal->target, mx, my);
+      else
+        calendar_view_clicked(cal, mx, my);
     }
     // finished dragging
     cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
@@ -442,8 +461,10 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
   }
 
   gtk_window_get_size(data->win, &width, &height);
-  calendar_update(cal, width, height);
-  calendar_draw(cr, cal, width, height);
+  cal->width = width;
+  cal->height = height;
+  calendar_update(cal);
+  calendar_draw(cr, cal);
 
   return FALSE;
 }
@@ -594,7 +615,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   if (is_dragging) {
     /* x += ev->dragx; */
     y += ev->dragy;
-    st = location_to_time(cal->view_start, cal->view_end, y/height);
+    st = location_to_time(cal->view_start, cal->view_end, y/(double)height);
     lt = *localtime(&st);
     lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
     lt.tm_sec = 0; // removes jitter
@@ -621,8 +642,10 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
 }
 
 static void
-calendar_update (struct cal *cal, int width, int height) {
-  int i;
+calendar_update (struct cal *cal) {
+  int i, width, height;
+  width = cal->width;
+  height = cal->height;
 
   // TODO refactor urxff
   width -= g_lmargin+GAP;
@@ -631,13 +654,15 @@ calendar_update (struct cal *cal, int width, int height) {
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
     event_update(ev, cal->view_start, cal->view_end,
-                 g_lmargin, GAP, width, height);
+                 g_lmargin, GAP, cal->width, cal->height);
   }
 }
 
 static int
-calendar_draw (cairo_t *cr, struct cal *cal, int width, int height) {
-  int i;
+calendar_draw (cairo_t *cr, struct cal *cal) {
+  int i, width, height;
+  width = cal->width;
+  height = cal->height;
 
   // TODO refactor urxff
   width -= g_lmargin+GAP;
@@ -670,7 +695,9 @@ int main(int argc, char *argv[])
   struct cal cal;
 
   calendar_create(&cal);
-  calendar_load_ical(&cal, "/home/jb55/Downloads/mycalendar.ics");
+  calendar_load_ical(&cal, "/home/jb55/var/ical2org/personal.ical");
+  calendar_load_ical(&cal, "/home/jb55/var/ical2org/monstercat.ical");
+  calendar_load_ical(&cal, "/home/jb55/var/ical2org/billnessa.ical");
   on_change_view(&cal);
 
   // TODO: get system timezone

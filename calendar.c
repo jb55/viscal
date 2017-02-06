@@ -116,11 +116,16 @@ static void draw_rectangle (cairo_t *, double, double);
 static int vevent_in_view(icalcomponent *, time_t, time_t);
 static void events_for_view(struct cal *, time_t, time_t);
 static void event_update (struct event *, time_t, time_t, int, int, int, int);
+
+static icalcomponent * event_create(time_t);
+static void event_set_summary(icalcomponent *, const char*);
 static void event_draw (cairo_t *, struct cal*, struct event *);
 static inline icaltime_span event_get_span (struct event*);
 static void events_update_flags (struct event*, int, double, double);
 
 static time_t location_to_time(time_t start, time_t end, double loc);
+static double time_to_location (time_t start, time_t end, time_t time);
+static time_t closest_timeblock(struct cal *, int);
 
 static gboolean
 on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data);
@@ -170,6 +175,7 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
 static char *
 file_load(char *path) {
   FILE *f = fopen(path, "rb");
+  if (!f) return NULL;
   fseek(f, 0, SEEK_END);
   long fsize = ftell(f);
   fseek(f, 0, SEEK_SET);
@@ -292,27 +298,47 @@ event_click(struct cal *cal, struct event *event, int mx, int my) {
                    (double)my / (double)cal->height);
 }
 
+static icalcomponent *
+event_create(time_t time) {
+  icalcomponent *vevent;
+  vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
+  return vevent;
+}
+
+static icalcomponent *
+calendar_def_cal(struct cal *cal) {
+  // TODO: configurable default calendar
+  if (cal->ncalendars > 0)
+    return cal->calendars[0].calendar;
+}
+
 static void
 calendar_view_clicked(struct cal *cal, int mx, int my) {
+  icalcomponent *vevent;
   double loc = (double)my / (double)cal->height;
   time_t time = location_to_time(cal->view_start, cal->view_end, loc);
   time_t closest;
+  struct icaldurationtype duration = {
+    .days = 0,
+    .hours = 1,
+    .is_neg = 0,
+    .minutes = 0,
+    .seconds = 0,
+    .weeks = 0,
+  };
   struct event ev;
   int y;
   char buf[32];
-  struct tm lt;
-
-  // TODO create event
-
-  location_to_time(cal->view_start, cal->view_end,
-                   (double)my / (double)cal->height);
-
-  format_locale_time(buf, length(buf), &lt);
-  printf("(%d,%d) clicked @%s\n", mx, my, buf);
 
   closest = closest_timeblock(cal, my);
-  event_create(&ev);
-  calendar_add_event()
+  format_locale_timet(buf, length(buf), closest);
+  printf("(%d,%d) clicked @%s\n", mx, my, buf);
+  vevent = event_create(closest);
+  icalcomponent_add_component(calendar_def_cal(cal), vevent);
+  icalcomponent_set_summary(vevent, "New Event");
+  // TODO: configurable default duration
+  icalcomponent_set_duration(vevent, duration);
+  cal->
 
   y = time_to_location(cal->view_start, cal->view_end, closest) * cal->height;
 }
@@ -590,7 +616,7 @@ draw_hours (cairo_t *cr, int sy, int width, int height)
 }
 
 static time_t
-location_to_time(time_t start, time_t end, int loc) {
+location_to_time(time_t start, time_t end, double loc) {
   return (time_t)((double)start) + (loc * (end - start));
 }
 
@@ -730,15 +756,20 @@ int main(int argc, char *argv[])
   calendar_create(&cal);
 
   ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/personal.ical");
-  ical->color = defcol;
+  if (ical)
+    ical->color = defcol;
 
   ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/monstercat.ical");
-  ical->color = defcol;
-  ical->color.r *= 0.5;
+  if (ical) {
+    ical->color = defcol;
+    ical->color.r *= 0.5;
+  }
 
   ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/billnessa.ical");
-  ical->color = defcol;
-  ical->color.b *= 0.5;
+  if (ical) {
+    ical->color = defcol;
+    ical->color.b *= 0.5;
+  }
 
   on_change_view(&cal);
 

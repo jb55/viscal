@@ -1,5 +1,5 @@
 
-BIN ?= calendar
+BIN ?= viscal
 
 all: $(BIN)
 
@@ -14,7 +14,9 @@ CFLAGS=-Wall \
 			 -g \
        `pkg-config --cflags --libs $(DEPS)`
 
-$(BIN): $(BIN).c Makefile
+tags: TAGS
+
+$(BIN): calendar.c Makefile
 	$(CC) $(CFLAGS) -o $@ $<
 
 TAGS:
@@ -23,4 +25,4 @@ TAGS:
 clean:
 	rm -f $(BIN)
 
-.PHONY: TAGS clean
+.PHONY: TAGS clean tags

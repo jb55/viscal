@@ -41,9 +41,21 @@ enum cal_flags {
   , CAL_DRAGGING = 1 << 1
 };
 
+union rgba {
+  double rgba[4];
+  struct {
+    double r, g, b, a;
+  };
+};
+
+struct ical {
+  icalcomponent * calendar;
+  union rgba color;
+};
+
 struct event {
   icalcomponent *vevent;
-  icalcomponent *calendar;
+  struct ical *ical;
 
   enum event_flags flags;
   // set on draw
@@ -54,7 +66,7 @@ struct event {
 };
 
 struct cal {
-  icalcomponent * calendars[128];
+  struct ical calendars[128];
   int ncalendars;
 
   struct event events[MAX_EVENTS];
@@ -76,13 +88,6 @@ struct extra_data {
   struct cal *cal;
 };
 
-union rgba {
-  double rgba[4];
-  struct {
-    double r, g, b, a;
-  };
-};
-
 static int g_lmargin = 40;
 static icaltimezone *g_timezone;
 static int g_margin_time_w = 0;
@@ -95,7 +100,7 @@ static const double dashed[] = {1.0};
 static struct event* events_hit (struct event *, int, double, double);
 static int event_hit (struct event *, double, double);
 
-static icalcomponent* calendar_load_ical(struct cal *, char *);
+static struct ical* calendar_load_ical(struct cal *, char *);
 static void calendar_print_state(struct cal *);
 static void calendar_create(struct cal *);
 static void calendar_update (struct cal *);
@@ -103,6 +108,7 @@ static int calendar_draw (cairo_t *, struct cal*);
 
 static void format_margin_time (char *, int, int);
 static void format_locale_time(char *, int, struct tm *);
+static void format_locale_timet(char *, int, time_t);
 static void draw_hours (cairo_t *, int, int, int);
 static void draw_background (cairo_t *, int, int);
 static void draw_rectangle (cairo_t *, double, double);
@@ -110,7 +116,7 @@ static void draw_rectangle (cairo_t *, double, double);
 static int vevent_in_view(icalcomponent *, time_t, time_t);
 static void events_for_view(struct cal *, time_t, time_t);
 static void event_update (struct event *, time_t, time_t, int, int, int, int);
-static void event_draw (cairo_t *, struct cal*, struct event *, int);
+static void event_draw (cairo_t *, struct cal*, struct event *);
 static inline icaltime_span event_get_span (struct event*);
 static void events_update_flags (struct event*, int, double, double);
 
@@ -169,7 +175,8 @@ file_load(char *path) {
   fseek(f, 0, SEEK_SET);
 
   char *string = malloc(fsize);
-  fread(string, fsize, 1, f);
+  int res = fread(string, fsize, 1, f);
+  if (!res) return NULL;
   fclose(f);
   return string;
 }
@@ -191,10 +198,12 @@ events_for_view(struct cal *cal, time_t start, time_t end)
   int i, count = 0;
   struct event *event;
   icalcomponent *vevent;
+  struct ical *calendar;
   icalcomponent *ical;
 
   for (i = 0; i < cal->ncalendars; ++i) {
-    ical = cal->calendars[i];
+    calendar = &cal->calendars[i];
+    ical = calendar->calendar;
     for (vevent = icalcomponent_get_first_component(ical, ICAL_VEVENT_COMPONENT);
          vevent != NULL && count < MAX_EVENTS;
          vevent = icalcomponent_get_next_component(ical, ICAL_VEVENT_COMPONENT))
@@ -203,7 +212,7 @@ events_for_view(struct cal *cal, time_t start, time_t end)
         event = &cal->events[count++];
         /* printf("event in view %s\n", icalcomponent_get_summary(vevent)); */
         event->vevent = vevent;
-        event->calendar = ical;
+        event->ical = calendar;
       }
     }
     cal->nevents = count;
@@ -211,13 +220,14 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 }
 
 
-static icalcomponent *
+static struct ical *
 calendar_load_ical(struct cal *cal, char *path) {
   // TODO: don't load duplicate calendars
+  struct ical* ical;
 
-  icalcomponent *prop;
   // TODO: free icalcomponent somewhere
   const char *str = file_load(path);
+  if (str == NULL) return NULL;
   icalcomponent *calendar = icalparser_parse_string(str);
   if (!calendar) return NULL;
 
@@ -225,10 +235,11 @@ calendar_load_ical(struct cal *cal, char *path) {
   if (length(cal->calendars) == cal->ncalendars)
     return NULL;
 
-  cal->calendars[cal->ncalendars++] = calendar;
+  ical = &cal->calendars[cal->ncalendars++];
+  ical->calendar = calendar;
 
   free((void*)str);
-  return calendar;
+  return ical;
 }
 
 
@@ -255,7 +266,6 @@ calendar_drop(struct cal *cal, double mx, double my) {
   struct event *ev = cal->target;
   if (ev) {
     icaltime_span span = icalcomponent_get_span(ev->vevent);
-    icaltimetype start = icalcomponent_get_dtstart(ev->vevent);
 
     time_t len = span.end - span.start;
     // XXX: should dragging timezone be the local timezone?
@@ -286,11 +296,25 @@ static void
 calendar_view_clicked(struct cal *cal, int mx, int my) {
   double loc = (double)my / (double)cal->height;
   time_t time = location_to_time(cal->view_start, cal->view_end, loc);
+  time_t closest;
+  struct event ev;
+  int y;
+  char buf[32];
+  struct tm lt;
 
   // TODO create event
-  // TODO create event
 
-  printf("(%d,%d) clicked %d\n", mx, my, time);
+  location_to_time(cal->view_start, cal->view_end,
+                   (double)my / (double)cal->height);
+
+  format_locale_time(buf, length(buf), &lt);
+  printf("(%d,%d) clicked @%s\n", mx, my, buf);
+
+  closest = closest_timeblock(cal, my);
+  event_create(&ev);
+  calendar_add_event()
+
+  y = time_to_location(cal->view_start, cal->view_end, closest) * cal->height;
 }
 
 static int
@@ -513,6 +537,13 @@ format_margin_time(char *buffer, int bsize, int hour) {
 }
 
 static void
+format_locale_timet(char *buffer, int bsize, time_t time) {
+  struct tm lt;
+  lt = *localtime(&time);
+  format_locale_time(buffer, bsize, &lt);
+}
+
+static void
 format_locale_time(char *buffer, int bsize, struct tm *tm) {
   strftime(buffer, bsize, "%X", tm);
   time_remove_seconds(buffer, 2);
@@ -559,7 +590,7 @@ draw_hours (cairo_t *cr, int sy, int width, int height)
 }
 
 static time_t
-location_to_time(time_t start, time_t end, double loc) {
+location_to_time(time_t start, time_t end, int loc) {
   return (time_t)((double)start) + (loc * (end - start));
 }
 
@@ -585,27 +616,32 @@ event_update (struct event *ev, time_t view_start, time_t view_end,
   ev->y = y;
 }
 
+static time_t
+closest_timeblock(struct cal *cal, int y) {
+  time_t st;
+  struct tm lt;
+  st = location_to_time(cal->view_start, cal->view_end, y/(double)cal->height);
+  lt = *localtime(&st);
+  lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
+  lt.tm_sec = 0; // removes jitter
+  return mktime(&lt);
+}
+
 static void
-event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
+event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   // double height = Math.fmin(, MIN_EVENT_HEIGHT);
   // stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
   // 			  sloc, eloc, dloc, eheight);
   static char bsmall[32] = {0};
   static char buffer[1024] = {0};
 
+  union rgba c = ev->ical->color;
   int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
+  int height = cal->height;
   double x = ev->x;
   double y = ev->y;
   time_t st = icalcomponent_get_span(ev->vevent).start;
   struct tm lt;
-
-  union rgba c = {
-    .rgba = { 106.0 / 255.0
-            , 190.0 / 255.0
-            , 219.0 / 255.0
-            , 1.0
-            }
-  };
 
   if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
     c.a *= 0.95;
@@ -615,17 +651,12 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   if (is_dragging) {
     /* x += ev->dragx; */
     y += ev->dragy;
-    st = location_to_time(cal->view_start, cal->view_end, y/(double)height);
-    lt = *localtime(&st);
-    lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
-    lt.tm_sec = 0; // removes jitter
-    st = mktime(&lt);
+    st = closest_timeblock(cal, y/(double)height);
     y = time_to_location(cal->view_start, cal->view_end, st) * height;
     cal->target->drag_time = st;
   }
 
   cairo_move_to(cr, x, y);
-  // TODO: calendar color for events
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
   draw_rectangle(cr, ev->width, ev->height);
   cairo_fill(cr);
@@ -635,8 +666,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev, int height) {
   cairo_stroke(cr);
   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD);
   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-  lt = *localtime(&st);
-  format_locale_time(bsmall, 32, &lt);
+  format_locale_timet(bsmall, 32, st);
   sprintf(buffer, "%s %s", bsmall, icalcomponent_get_summary(ev->vevent));
   cairo_show_text(cr, buffer);
 }
@@ -654,7 +684,7 @@ calendar_update (struct cal *cal) {
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
     event_update(ev, cal->view_start, cal->view_end,
-                 g_lmargin, GAP, cal->width, cal->height);
+                 g_lmargin, GAP, width, height);
   }
 }
 
@@ -663,10 +693,6 @@ calendar_draw (cairo_t *cr, struct cal *cal) {
   int i, width, height;
   width = cal->width;
   height = cal->height;
-
-  // TODO refactor urxff
-  width -= g_lmargin+GAP;
-  height -= GAP*2;
 
   cairo_move_to(cr, g_lmargin, GAP);
   draw_background(cr, width, height);
@@ -677,7 +703,7 @@ calendar_draw (cairo_t *cr, struct cal *cal) {
   // draw calendar events
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
-    event_draw(cr, cal, ev, height);
+    event_draw(cr, cal, ev);
   }
 
   return 1;
@@ -691,13 +717,29 @@ int main(int argc, char *argv[])
   GdkColor color;
   char buffer[32];
   double text_col = 0.6;
+  struct ical *ical;
+  union rgba defcol;
+
+  defcol.r = 106.0 / 255.0;
+  defcol.g = 219.0 / 255.0;
+  defcol.b = 219.0 / 255.0;
+  defcol.a = 1.0;
 
   struct cal cal;
 
   calendar_create(&cal);
-  calendar_load_ical(&cal, "/home/jb55/var/ical2org/personal.ical");
-  calendar_load_ical(&cal, "/home/jb55/var/ical2org/monstercat.ical");
-  calendar_load_ical(&cal, "/home/jb55/var/ical2org/billnessa.ical");
+
+  ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/personal.ical");
+  ical->color = defcol;
+
+  ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/monstercat.ical");
+  ical->color = defcol;
+  ical->color.r *= 0.5;
+
+  ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/billnessa.ical");
+  ical->color = defcol;
+  ical->color.b *= 0.5;
+
   on_change_view(&cal);
 
   // TODO: get system timezone

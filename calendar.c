@@ -66,6 +66,7 @@ struct event {
 };
 
 struct cal {
+  GtkWidget *widget;
   struct ical calendars[128];
   int ncalendars;
 
@@ -76,6 +77,7 @@ struct cal {
   // TODO: make multiple target selection
   struct event *target;
   int minute_round;
+  int refresh_events;
 
   time_t view_start;
   time_t view_end;
@@ -105,6 +107,7 @@ static void calendar_print_state(struct cal *);
 static void calendar_create(struct cal *);
 static void calendar_update (struct cal *);
 static int calendar_draw (cairo_t *, struct cal*);
+static void calendar_refresh_events(struct cal*);
 
 static void format_margin_time (char *, int, int);
 static void format_locale_time(char *, int, struct tm *);
@@ -313,6 +316,12 @@ calendar_def_cal(struct cal *cal) {
 }
 
 static void
+calendar_refresh_events(struct cal *cal) {
+  cal->refresh_events = 1;
+  gtk_widget_queue_draw(cal->widget);
+}
+
+static void
 calendar_view_clicked(struct cal *cal, int mx, int my) {
   icalcomponent *vevent;
   double loc = (double)my / (double)cal->height;
@@ -331,14 +340,20 @@ calendar_view_clicked(struct cal *cal, int mx, int my) {
   char buf[32];
 
   closest = closest_timeblock(cal, my);
+
+  icaltimetype dtstart = icaltime_from_timet(closest, 0);
+  icaltimetype dtend = icaltime_from_timet(closest + cal->minute_round * 60, 0);
+
   format_locale_timet(buf, length(buf), closest);
   printf("(%d,%d) clicked @%s\n", mx, my, buf);
   vevent = event_create(closest);
-  icalcomponent_add_component(calendar_def_cal(cal), vevent);
   icalcomponent_set_summary(vevent, "New Event");
   // TODO: configurable default duration
-  icalcomponent_set_duration(vevent, duration);
-  cal->
+  /* icalcomponent_set_duration(vevent, duration); */
+  icalcomponent_set_dtstart(vevent, dtstart);
+  icalcomponent_set_dtend(vevent, dtend);
+  icalcomponent_add_component(calendar_def_cal(cal), vevent);
+  calendar_refresh_events(cal);
 
   y = time_to_location(cal->view_start, cal->view_end, closest) * cal->height;
 }
@@ -707,6 +722,11 @@ calendar_update (struct cal *cal) {
   width -= g_lmargin+GAP;
   height -= GAP*2;
 
+  if (cal->refresh_events) {
+    on_change_view(cal);
+    cal->refresh_events = 0;
+  }
+
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
     event_update(ev, cal->view_start, cal->view_end,
@@ -800,6 +820,7 @@ int main(int argc, char *argv[])
 
   display = gdk_display_get_default();
   darea = gtk_drawing_area_new();
+  cal.widget = darea;
   gtk_container_add(GTK_CONTAINER(window), darea);
 
   cursor_pointer = gdk_cursor_new_from_name (display, "pointer");

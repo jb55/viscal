@@ -692,7 +692,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   if (is_dragging) {
     /* x += ev->dragx; */
     y += ev->dragy;
-    st = closest_timeblock(cal, y/(double)height);
+    st = closest_timeblock(cal, y);
     y = time_to_location(cal->view_start, cal->view_end, st) * height;
     cal->target->drag_time = st;
   }

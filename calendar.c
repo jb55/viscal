@@ -278,7 +278,9 @@ calendar_drop(struct cal *cal, double mx, double my) {
   if (ev) {
     icaltime_span span = icalcomponent_get_span(ev->vevent);
 
+    // TODO: use default event length when dragging from gutter?
     time_t len = span.end - span.start;
+
     // XXX: should dragging timezone be the local timezone?
     // XXX: this will probably destroy the timezone, we don't want that
     // TODO: convert timezone on drag?
@@ -365,6 +367,7 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
   case GDK_BUTTON_RELEASE:
     if ((cal->flags & CAL_DRAGGING) != 0) {
       // finished drag
+      // TODO: handle drop into and out of gutter
       calendar_drop(cal, mx, my);
     }
     else {
@@ -372,10 +375,11 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
       if (cal->target)
         event_click(cal, cal->target, mx, my);
       else if (my < cal->y) {
-        // TODO: gutter clicked, create date event?
+        // TODO: gutter clicked, create date event + increase gutter size
       }
-      else
+      else {
         calendar_view_clicked(cal, mx, my - cal->y);
+      }
     }
     // finished dragging
     cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);

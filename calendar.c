@@ -26,6 +26,8 @@ static const int DAY_SECONDS = 86400;
 static const int MAX_EVENTS = 1024;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
+static const int ZOOM_MAX = 20;
+static const int ZOOM_MIN = 0.1;
 static const int DEF_LMARGIN = 20;
 
 
@@ -79,7 +81,7 @@ struct cal {
   int refresh_events;
   int x, y, mx, my;
   int gutter_height;
-  double zoom;
+  double zoom, zoom_at;
 
   time_t view_start;
   time_t view_end;
@@ -114,7 +116,7 @@ static void calendar_refresh_events(struct cal*);
 static void format_margin_time (char *, int, int);
 static void format_locale_time(char *, int, struct tm *);
 static void format_locale_timet(char *, int, time_t);
-static void draw_hours (cairo_t *, int, int, int);
+static void draw_hours (cairo_t *, struct cal*);
 static void draw_background (cairo_t *, int, int);
 static void draw_rectangle (cairo_t *, double, double);
 
@@ -164,7 +166,7 @@ calendar_create(struct cal *cal) {
   cal->view_start = today + start_at;
   cal->x = g_lmargin;
   cal->y = cal->gutter_height;
-  cal->zoom = 0.0;
+  cal->zoom = 1.0;
 }
 
 static void
@@ -420,8 +422,8 @@ event_any_flags(struct event *events, int nevents, int flag) {
 static void
 calendar_print_state(struct cal *cal) {
   static int c = 0;
-  printf("%d %d %s %s %d\r",
-         cal->mx, cal->my,
+  printf("%f %d %d %s %s %d\r",
+         cal->zoom, cal->mx, cal->my,
          (cal->flags & CAL_DRAGGING) != 0 ? "D " : "  ",
          (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  ",
          c++
@@ -431,10 +433,16 @@ calendar_print_state(struct cal *cal) {
 
 static int
 on_scroll(GtkWidget *widget, GdkEventScroll *ev, gpointer user_data) {
+  // TODO: GtkGestureZoom
+  // https://developer.gnome.org/gtk3/stable/GtkGestureZoom.html
   struct extra_data *data = (struct extra_data*)user_data;
   struct cal *cal = data->cal;
+  double newzoom = cal->zoom - ev->delta_y;
 
-  cal->zoom += ev->delta_y;
+  if (newzoom > ZOOM_MIN && newzoom < ZOOM_MAX) {
+    cal->zoom = newzoom;
+    cal->zoom_at = cal->my;
+  }
 
   on_state_change(widget, (GdkEvent*)ev, user_data);
 }
@@ -614,9 +622,15 @@ format_locale_time(char *buffer, int bsize, struct tm *tm) {
 
 
 static void
-draw_hours (cairo_t *cr, int sy, int width, int height)
+draw_hours (cairo_t *cr, struct cal* cal)
 {
-  double section_height = ((double)height) / 48.0;
+  time_t start = cal->view_start;
+  time_t end   = cal->view_end;
+  int height   = cal->height;
+  int width    = cal->width;
+  double zoom  = cal->zoom;
+
+  double section_height = (((double)height) / 48.0);
   char buffer[32] = {0};
   const double col = 0.4;
   cairo_set_source_rgb (cr, col, col, col);
@@ -625,7 +639,7 @@ draw_hours (cairo_t *cr, int sy, int width, int height)
   for (int section = 0; section < 48; section++) {
 
     int minutes = section * 30;
-    double y = sy + ((double)section) * section_height;
+    double y = cal->y + ((double)section) * section_height;
     cairo_move_to (cr, 0, y);
     cairo_rel_line_to (cr, width, 0);
 
@@ -725,7 +739,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
 
   union rgba c = ev->ical->color;
   int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
-  int height = cal->height;
+  double height = max(1.0, ev->height * cal->zoom);
   icaltimetype evtime = icalcomponent_get_dtstart(ev->vevent);
   int isdate = evtime.is_date;
   double x = isdate ? cal->x : ev->x;
@@ -749,7 +763,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
 
   cairo_move_to(cr, x, y);
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
-  draw_rectangle(cr, ev->width, ev->height);
+  draw_rectangle(cr, ev->width, height);
   cairo_fill(cr);
   cairo_move_to(cr, x, y);
   cairo_rel_line_to(cr, ev->width, 0);
@@ -796,7 +810,7 @@ calendar_draw (cairo_t *cr, struct cal *cal) {
   cairo_move_to(cr, cal->x, cal->y);
   draw_background(cr, width, height);
 
-  draw_hours(cr, cal->y, width + cal->x, height);
+  draw_hours(cr, cal);
 
   // draw calendar events
   for (i = 0; i < cal->nevents; ++i) {

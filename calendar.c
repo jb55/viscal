@@ -26,7 +26,6 @@ static const int DAY_SECONDS = 86400;
 static const int MAX_EVENTS = 1024;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
-static const int GAP = 0;
 static const int DEF_LMARGIN = 20;
 
 
@@ -78,6 +77,8 @@ struct cal {
   struct event *target;
   int minute_round;
   int refresh_events;
+  int x, y;
+  int gutter_height;
 
   time_t view_start;
   time_t view_end;
@@ -90,7 +91,7 @@ struct extra_data {
   struct cal *cal;
 };
 
-static int g_lmargin = 40;
+static int g_lmargin = 18;
 static icaltimezone *g_timezone;
 static int g_margin_time_w = 0;
 static union rgba g_text_color;
@@ -118,7 +119,7 @@ static void draw_rectangle (cairo_t *, double, double);
 
 static int vevent_in_view(icalcomponent *, time_t, time_t);
 static void events_for_view(struct cal *, time_t, time_t);
-static void event_update (struct event *, time_t, time_t, int, int, int, int);
+static void event_update (struct event *, struct cal *cal);
 
 static icalcomponent * event_create(time_t);
 static void event_set_summary(icalcomponent *, const char*);
@@ -126,6 +127,7 @@ static void event_draw (cairo_t *, struct cal*, struct event *);
 static inline icaltime_span event_get_span (struct event*);
 static void events_update_flags (struct event*, int, double, double);
 
+static time_t calendar_loc_to_time(struct cal* cal, double loc);
 static time_t location_to_time(time_t start, time_t end, double loc);
 static double time_to_location (time_t start, time_t end, time_t time);
 static time_t closest_timeblock(struct cal *, int);
@@ -197,7 +199,7 @@ span_overlaps(time_t start1, time_t end1, time_t start2, time_t end2) {
 
 static int
 vevent_in_view(icalcomponent *vevent, time_t start, time_t end) {
-  icaltime_span span = icalcomponent_get_span(vevent); 
+  icaltime_span span = icalcomponent_get_span(vevent);
   return span_overlaps(span.start, span.end, start, end);
 }
 
@@ -297,8 +299,7 @@ static void
 event_click(struct cal *cal, struct event *event, int mx, int my) {
   printf("clicked %s\n", icalcomponent_get_summary(event->vevent));
 
-  location_to_time(cal->view_start, cal->view_end,
-                   (double)my / (double)cal->height);
+  calendar_loc_to_time(cal, my);
 }
 
 static icalcomponent *
@@ -313,6 +314,7 @@ calendar_def_cal(struct cal *cal) {
   // TODO: configurable default calendar
   if (cal->ncalendars > 0)
     return cal->calendars[0].calendar;
+  return NULL;
 }
 
 static void
@@ -324,18 +326,7 @@ calendar_refresh_events(struct cal *cal) {
 static void
 calendar_view_clicked(struct cal *cal, int mx, int my) {
   icalcomponent *vevent;
-  double loc = (double)my / (double)cal->height;
-  time_t time = location_to_time(cal->view_start, cal->view_end, loc);
   time_t closest;
-  struct icaldurationtype duration = {
-    .days = 0,
-    .hours = 1,
-    .is_neg = 0,
-    .minutes = 0,
-    .seconds = 0,
-    .weeks = 0,
-  };
-  struct event ev;
   int y;
   char buf[32];
 
@@ -380,8 +371,11 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
       // clicked target
       if (cal->target)
         event_click(cal, cal->target, mx, my);
+      else if (my < cal->y) {
+        // TODO: gutter clicked, create date event?
+      }
       else
-        calendar_view_clicked(cal, mx, my);
+        calendar_view_clicked(cal, mx, my - cal->y);
     }
     // finished dragging
     cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
@@ -452,7 +446,7 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
     if (cal->target) {
       dragging_event = 1;
       cal->target->dragx = px - cal->target->x;
-      cal->target->dragy = py - cal->target->y;
+      cal->target->dragy = py - cal->target->y - cal->y;
     }
   }
 
@@ -526,8 +520,12 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
   }
 
   gtk_window_get_size(data->win, &width, &height);
-  cal->width = width;
-  cal->height = height;
+
+  cal->y = cal->gutter_height;
+
+  cal->width = width - cal->x;
+  cal->height = height - cal->y;
+
   calendar_update(cal);
   calendar_draw(cr, cal);
 
@@ -631,6 +629,12 @@ draw_hours (cairo_t *cr, int sy, int width, int height)
 }
 
 static time_t
+calendar_loc_to_time(struct cal *cal, double y) {
+  return location_to_time(cal->view_start, cal->view_end,
+                          y/((double)cal->height));
+}
+
+static time_t
 location_to_time(time_t start, time_t end, double loc) {
   return (time_t)((double)start) + (loc * (end - start));
 }
@@ -640,16 +644,35 @@ static double time_to_location (time_t start, time_t end, time_t time) {
 }
 
 static void
-event_update (struct event *ev, time_t view_start, time_t view_end,
-              int sx, int sy, int width, int height)
+event_update (struct event *ev, struct cal *cal)
 {
+  time_t view_start = cal->view_start;
+  time_t view_end = cal->view_end;
+  icaltimetype evtime = icalcomponent_get_dtstart(ev->vevent);
   icaltime_span span = icalcomponent_get_span(ev->vevent);
-  double sloc = time_to_location(view_start, view_end, span.start);
-  double eloc = time_to_location(view_start, view_end, span.end); 
+  int isdate = evtime.is_date;
+  double sx, sy, y, eheight, height, width;
 
-  double dloc = eloc - sloc;
-  double eheight = dloc * height;
-  double y = (sloc * height) + sy;
+  height = cal->height;
+  width = cal->width;
+
+  sx = cal->x;
+  sy = cal->y;
+
+  // height is fixed in top gutter for date events
+  if (isdate) {
+    // TODO: (DATEEV) gutter positioning
+    eheight = 20.0;
+    y = 0;
+  }
+  else {
+    double sloc = time_to_location(view_start, view_end, span.start);
+    double eloc = time_to_location(view_start, view_end, span.end);
+
+    double dloc = eloc - sloc;
+    eheight = dloc * height;
+    y = (sloc * height) + sy;
+  }
 
   ev->width = width;
   ev->height = eheight;
@@ -661,7 +684,7 @@ static time_t
 closest_timeblock(struct cal *cal, int y) {
   time_t st;
   struct tm lt;
-  st = location_to_time(cal->view_start, cal->view_end, y/(double)cal->height);
+  st = calendar_loc_to_time(cal, y);
   lt = *localtime(&st);
   lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
   lt.tm_sec = 0; // removes jitter
@@ -679,10 +702,13 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   union rgba c = ev->ical->color;
   int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
   int height = cal->height;
-  double x = ev->x;
-  double y = ev->y;
+  icaltimetype evtime = icalcomponent_get_dtstart(ev->vevent);
+  int isdate = evtime.is_date;
+  double x = isdate ? cal->x : ev->x;
+  // TODO: date-event stacking
+  double y = isdate ? 0 : ev->y;
   time_t st = icalcomponent_get_span(ev->vevent).start;
-  struct tm lt;
+  const char * const summary = icalcomponent_get_summary(ev->vevent);
 
   if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
     c.a *= 0.95;
@@ -693,7 +719,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
     /* x += ev->dragx; */
     y += ev->dragy;
     st = closest_timeblock(cal, y);
-    y = time_to_location(cal->view_start, cal->view_end, st) * height;
+    y = cal->y + time_to_location(cal->view_start, cal->view_end, st) * height;
     cal->target->drag_time = st;
   }
 
@@ -707,8 +733,13 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   cairo_stroke(cr);
   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD);
   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-  format_locale_timet(bsmall, 32, st);
-  sprintf(buffer, "%s %s", bsmall, icalcomponent_get_summary(ev->vevent));
+  if (isdate) {
+    sprintf(buffer, "%s", summary);
+  }
+  else {
+    format_locale_timet(bsmall, 32, st);
+    sprintf(buffer, "%s %s", bsmall, summary);
+  }
   cairo_show_text(cr, buffer);
 }
 
@@ -718,9 +749,8 @@ calendar_update (struct cal *cal) {
   width = cal->width;
   height = cal->height;
 
-  // TODO refactor urxff
-  width -= g_lmargin+GAP;
-  height -= GAP*2;
+  width  -= cal->x;
+  height -= cal->y * 2;
 
   if (cal->refresh_events) {
     on_change_view(cal);
@@ -729,8 +759,7 @@ calendar_update (struct cal *cal) {
 
   for (i = 0; i < cal->nevents; ++i) {
     struct event *ev = &cal->events[i];
-    event_update(ev, cal->view_start, cal->view_end,
-                 g_lmargin, GAP, width, height);
+    event_update(ev, cal);
   }
 }
 
@@ -740,11 +769,10 @@ calendar_draw (cairo_t *cr, struct cal *cal) {
   width = cal->width;
   height = cal->height;
 
-  cairo_move_to(cr, g_lmargin, GAP);
+  cairo_move_to(cr, cal->x, cal->y);
   draw_background(cr, width, height);
 
-  // cairo_move_to (GAP, GAP);
-  draw_hours(cr, GAP, width + g_lmargin, height);
+  draw_hours(cr, cal->y, width + cal->x, height);
 
   // draw calendar events
   for (i = 0; i < cal->nevents; ++i) {
@@ -772,6 +800,10 @@ int main(int argc, char *argv[])
   defcol.a = 1.0;
 
   struct cal cal;
+
+  cal.gutter_height = 40;
+  cal.x = g_lmargin;
+  cal.y = cal.gutter_height;
 
   calendar_create(&cal);
 

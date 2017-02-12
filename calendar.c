@@ -77,8 +77,9 @@ struct cal {
   struct event *target;
   int minute_round;
   int refresh_events;
-  int x, y;
+  int x, y, mx, my;
   int gutter_height;
+  double zoom;
 
   time_t view_start;
   time_t view_end;
@@ -138,6 +139,7 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data);
 static void on_change_view(struct cal*);
 
 static int on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data);
+static int on_scroll(GtkWidget *widget, GdkEventScroll *ev, gpointer user_data);
 static int on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data);
 static int on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data);
 
@@ -154,11 +156,15 @@ calendar_create(struct cal *cal) {
   nowtm.tm_min = 0;
   today = mktime(&nowtm);
 
+  cal->gutter_height = 40;
+  cal->minute_round = 30;
   cal->ncalendars = 0;
   cal->nevents = 0;
-  cal->minute_round = 30;
-  cal->view_start = today + start_at;
   cal->view_end = today + DAY_SECONDS;
+  cal->view_start = today + start_at;
+  cal->x = g_lmargin;
+  cal->y = cal->gutter_height;
+  cal->zoom = 0.0;
 }
 
 static void
@@ -414,12 +420,23 @@ event_any_flags(struct event *events, int nevents, int flag) {
 static void
 calendar_print_state(struct cal *cal) {
   static int c = 0;
-  printf("%s %s %d\r",
+  printf("%d %d %s %s %d\r",
+         cal->mx, cal->my,
          (cal->flags & CAL_DRAGGING) != 0 ? "D " : "  ",
          (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  ",
          c++
          );
   fflush(stdout);
+}
+
+static int
+on_scroll(GtkWidget *widget, GdkEventScroll *ev, gpointer user_data) {
+  struct extra_data *data = (struct extra_data*)user_data;
+  struct cal *cal = data->cal;
+
+  cal->zoom += ev->delta_y;
+
+  on_state_change(widget, (GdkEvent*)ev, user_data);
 }
 
 static int
@@ -435,6 +452,9 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
   struct extra_data *data = (struct extra_data*)user_data;
   struct cal *cal = data->cal;
   GdkWindow *gdkwin = gtk_widget_get_window(widget);
+
+  cal->mx = mx - cal->x;
+  cal->my = my - cal->y;
 
   double px = ev->x;
   double py = ev->y;
@@ -805,10 +825,6 @@ int main(int argc, char *argv[])
 
   struct cal cal;
 
-  cal.gutter_height = 40;
-  cal.x = g_lmargin;
-  cal.y = cal.gutter_height;
-
   calendar_create(&cal);
 
   ical = calendar_load_ical(&cal, "/home/jb55/var/ical2org/personal.ical");
@@ -868,6 +884,8 @@ int main(int argc, char *argv[])
                    G_CALLBACK(on_press), (gpointer)&extra_data);
   g_signal_connect(G_OBJECT(darea), "motion-notify-event",
                    G_CALLBACK(on_motion), (gpointer)&extra_data);
+  g_signal_connect(G_OBJECT(darea), "scroll-event",
+                   G_CALLBACK(on_scroll), (gpointer)&extra_data);
 
   g_signal_connect(G_OBJECT(darea), "draw",
                    G_CALLBACK(on_draw_event), (gpointer)&extra_data);
@@ -877,6 +895,8 @@ int main(int argc, char *argv[])
 
   gtk_widget_set_events(darea, GDK_BUTTON_PRESS_MASK
                              | GDK_BUTTON_RELEASE_MASK
+                             | GDK_SCROLL_MASK
+                             | GDK_SMOOTH_SCROLL_MASK
                              | GDK_POINTER_MOTION_MASK);
   gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
   gtk_window_set_default_size(GTK_WINDOW(window), 400, 800);

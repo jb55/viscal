@@ -26,9 +26,9 @@ static const int DAY_SECONDS = 86400;
 static const int MAX_EVENTS = 1024;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
-static const int EVMARGIN = 2;
-static const double ZOOM_MAX = 20;
-static const double ZOOM_MIN = 0.1;
+static const int EVMARGIN = 1;
+static const double ZOOM_MAX = 10;
+static const double ZOOM_MIN = 1;
 static const int DEF_LMARGIN = 20;
 
 
@@ -95,13 +95,16 @@ struct extra_data {
   struct cal *cal;
 };
 
-static int g_lmargin = 18;
-static icaltimezone *g_timezone;
-static int g_margin_time_w = 0;
-static union rgba g_text_color;
-static int margin_calculated = 0;
-static GdkCursor *cursor_pointer;
 static GdkCursor *cursor_default;
+static GdkCursor *cursor_pointer;
+static icaltimezone *g_timezone;
+static int g_lmargin = 18;
+static int g_margin_time_w = 0;
+static int margin_calculated = 0;
+
+static union rgba g_text_color;
+static union rgba g_timeline_color;
+
 static const double dashed[] = {1.0};
 
 // calendar
@@ -121,6 +124,7 @@ static void format_margin_time (char *, int, int);
 static void draw_background (cairo_t *, int, int);
 static void draw_hours (cairo_t *, struct cal*);
 static void draw_rectangle (cairo_t *, double, double);
+static void draw_time_line(cairo_t *, struct cal*, time_t);
 
 // events
 static inline icaltime_span event_get_span (struct event*);
@@ -447,12 +451,19 @@ on_scroll(GtkWidget *widget, GdkEventScroll *ev, gpointer user_data) {
   struct cal *cal = data->cal;
   double newzoom = cal->zoom - ev->delta_y * 0.1;
 
-  if (newzoom > ZOOM_MIN && newzoom < ZOOM_MAX) {
-    cal->zoom = newzoom;
-    cal->zoom_at = cal->my;
+  if (newzoom < ZOOM_MIN) {
+    newzoom = ZOOM_MIN;
+  }
+  else if (newzoom > ZOOM_MAX) {
+    newzoom = ZOOM_MAX;
   }
 
+  cal->zoom = newzoom;
+  cal->zoom_at = cal->my;
+
   on_state_change(widget, (GdkEvent*)ev, user_data);
+
+  return 0;
 }
 
 static int
@@ -559,6 +570,8 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
     margin_calculated = 1;
   }
 
+  cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
+
   gtk_window_get_size(data->win, &width, &height);
 
   cal->y = cal->gutter_height;
@@ -578,6 +591,33 @@ static void draw_background (cairo_t *cr, int width, int height) {
   draw_rectangle (cr, width, height);
   cairo_fill (cr);
 }
+
+static inline void
+draw_line (cairo_t *cr, double x, double y, double w) {
+  cairo_move_to(cr, x, y + 0.5);
+  cairo_rel_line_to(cr, w, 0);
+}
+
+static void
+draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
+  double loc = calendar_time_to_loc(cal, time);
+  double y = (loc * cal->height) + cal->y;
+  int w = cal->width;
+
+  cairo_set_line_width(cr, 1.0);
+
+  cairo_set_source_rgb (cr, 1.0, 0, 0);
+  draw_line(cr, cal->x, y - 1, w);
+  cairo_stroke(cr);
+
+  /* cairo_set_source_rgb (cr, 1.0, 1.0, 1.0); */
+  /* draw_line(cr, cal->x, y, w); */
+  /* cairo_stroke(cr); */
+
+  /* cairo_set_source_rgb (cr, 0, 0, 0); */
+  /* draw_line(cr, cal->x, y + 1, w); */
+  /* cairo_stroke(cr); */
+} 
 
 
 static void draw_rectangle (cairo_t *cr, double x, double y) {
@@ -632,11 +672,9 @@ format_locale_time(char *buffer, int bsize, struct tm *tm) {
 static void
 draw_hours (cairo_t *cr, struct cal* cal)
 {
-  time_t start = cal->view_start;
-  time_t end   = cal->view_end;
-  int height   = cal->height;
-  int width    = cal->width;
-  double zoom  = cal->zoom;
+  double height = cal->height;
+  double width  = cal->width;
+  double zoom   = cal->zoom;
 
   double section_height = (((double)height) / 48.0) * zoom;
   char buffer[32] = {0};
@@ -644,9 +682,11 @@ draw_hours (cairo_t *cr, struct cal* cal)
   cairo_set_source_rgb (cr, col, col, col);
   cairo_set_line_width (cr, 1);
 
+  // TODO: dynamic section subdivide on zoom?
   for (int section = 0; section < 48; section++) {
-
     int minutes = section * 30;
+    int onhour = ((minutes / 30) % 2) == 0;
+    if (section_height < 14 && !onhour) continue;
     double y = cal->y + ((double)section) * section_height;
     cairo_move_to (cr, cal->x, y);
     cairo_rel_line_to (cr, width, 0);
@@ -659,7 +699,6 @@ draw_hours (cairo_t *cr, struct cal* cal)
     cairo_stroke(cr);
     cairo_set_dash (cr, NULL, 0, 0);
 
-    int onhour = ((minutes / 30) % 2) == 0;
     if (onhour) {
       format_margin_time(buffer, 32, minutes / 60);
       // TODO: text extents for proper time placement?
@@ -701,8 +740,6 @@ time_to_location (time_t start, time_t end, time_t time) {
 static void
 event_update (struct event *ev, struct cal *cal)
 {
-  time_t view_start = cal->view_start;
-  time_t view_end = cal->view_end;
   icaltimetype evtime = icalcomponent_get_dtstart(ev->vevent);
   icaltime_span span = icalcomponent_get_span(ev->vevent);
   int isdate = evtime.is_date;
@@ -718,7 +755,7 @@ event_update (struct event *ev, struct cal *cal)
   if (isdate) {
     // TODO: (DATEEV) gutter positioning
     eheight = 20.0;
-    y = 0;
+    y = EVPAD;
   }
   else {
     double sloc = calendar_time_to_loc(cal, span.start);
@@ -752,17 +789,23 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   // stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
   // 			  sloc, eloc, dloc, eheight);
   static char bsmall[32] = {0};
+  static char bsmall2[32] = {0};
   static char buffer[1024] = {0};
 
   union rgba c = ev->ical->color;
   int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
-  double evheight = max(1.0, ev->height);
-  icaltimetype evtime = icalcomponent_get_dtstart(ev->vevent);
-  int isdate = evtime.is_date;
-  double x = isdate ? cal->x : ev->x;
+  double evheight = max(1.0, ev->height - EVMARGIN);
+  double evwidth = ev->width;
+  icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
+  icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
+  int isdate = dtstart.is_date;
+  double x = ev->x;
   // TODO: date-event stacking
-  double y = isdate ? 0 : ev->y;
-  time_t st = icalcomponent_get_span(ev->vevent).start;
+  double y = ev->y;
+  time_t st = icaltime_as_timet(dtstart);
+  time_t et = icaltime_as_timet(dtend);
+  time_t len = et - st;
+  cairo_text_extents_t exts;
   const char * const summary = icalcomponent_get_summary(ev->vevent);
 
   if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
@@ -778,24 +821,43 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
     cal->target->drag_time = st;
   }
 
+  /* y -= EVMARGIN; */
+
   cairo_move_to(cr, x, y);
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
   draw_rectangle(cr, ev->width, evheight);
   cairo_fill(cr);
-  cairo_move_to(cr, x, y);
-  cairo_rel_line_to(cr, ev->width, 0);
-  cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
-  cairo_stroke(cr);
-  cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD);
-  cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+  // TODO txt extents to center
+  // TODO: event text color
+  static const double txtc = 0.2;
+  cairo_set_source_rgb(cr, txtc, txtc, txtc);
+  // TODO: event text formatting based on rendered sizes and text exts
   if (isdate) {
     sprintf(buffer, "%s", summary);
+    cairo_text_extents(cr, buffer, &exts);
+    cairo_move_to(cr, x + EVPAD, y + (evheight / 2.0)
+                                   + ((double)exts.height / 2.0));
+    cairo_show_text(cr, buffer);
   }
+  /* else if (len > 30*60) { */
+  /*   format_locale_timet(bsmall, 32, st); */
+  /*   format_locale_timet(bsmall2, 32, et); */
+  /*   sprintf(buffer, "%s — %s", bsmall, bsmall2); */
+  /*   cairo_show_text(cr, buffer); */
+  /*   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD * 2); */
+  /*   cairo_show_text(cr, summary); */
+  /* } */
   else {
     format_locale_timet(bsmall, 32, st);
-    sprintf(buffer, "%s %s", bsmall, summary);
+    format_locale_timet(bsmall2, 32, et);
+    sprintf(buffer, "%d  %s", len / 60, summary);
+    cairo_text_extents(cr, buffer, &exts);
+    double ey = evheight < exts.height
+              ? y + TXTPAD - EVPAD
+              : y + TXTPAD + EVPAD;
+    cairo_move_to(cr, x + EVPAD, ey);
+    cairo_show_text(cr, buffer);
   }
-  cairo_show_text(cr, buffer);
 }
 
 static void
@@ -821,12 +883,12 @@ calendar_update (struct cal *cal) {
 static int
 calendar_draw (cairo_t *cr, struct cal *cal) {
   int i, width, height;
+  time_t now;
   width = cal->width;
   height = cal->height;
 
   cairo_move_to(cr, cal->x, cal->y);
   draw_background(cr, width, height);
-
   draw_hours(cr, cal);
 
   // draw calendar events
@@ -834,6 +896,8 @@ calendar_draw (cairo_t *cr, struct cal *cal) {
     struct event *ev = &cal->events[i];
     event_draw(cr, cal, ev);
   }
+
+  draw_time_line(cr, cal, time(&now));
 
   return 1;
 }
@@ -883,9 +947,9 @@ int main(int argc, char *argv[])
   g_text_color.g = text_col;
   g_text_color.b = text_col;
 
-  color.red = BGCOLOR * 0xffff;
-  color.green = BGCOLOR * 0xffff;
-  color.blue = BGCOLOR * 0xffff;
+  color.red = BGCOLOR * 0xffff * 0.6;
+  color.green = BGCOLOR * 0xffff * 0.6;
+  color.blue = BGCOLOR * 0xffff * 0.6;
 
   /* setlocale(LC_TIME, ""); */
 

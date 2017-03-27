@@ -21,9 +21,10 @@
     __typeof__ (b) _b = (b);                    \
     _a < _b ? _a : _b; })
 
+#define MAX_EVENTS 1024
+
 static const double BGCOLOR = 0.35;
 static const int DAY_SECONDS = 86400;
-static const int MAX_EVENTS = 1024;
 static const int TXTPAD = 11;
 static const int EVPAD = 2;
 static const int EVMARGIN = 1;
@@ -827,11 +828,9 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
   draw_rectangle(cr, ev->width, evheight);
   cairo_fill(cr);
-  // TODO txt extents to center
   // TODO: event text color
   static const double txtc = 0.2;
   cairo_set_source_rgb(cr, txtc, txtc, txtc);
-  // TODO: event text formatting based on rendered sizes and text exts
   if (isdate) {
     sprintf(buffer, "%s", summary);
     cairo_text_extents(cr, buffer, &exts);
@@ -850,6 +849,7 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
   else {
     format_locale_timet(bsmall, 32, st);
     format_locale_timet(bsmall2, 32, et);
+    // TODO: configurable event format
     sprintf(buffer, "%d  %s", len / 60, summary);
     cairo_text_extents(cr, buffer, &exts);
     double ey = evheight < exts.height

@@ -12,6 +12,7 @@ CFLAGS=-Wall \
        -Werror=int-conversion \
 			 -std=c99 \
 			 -g \
+			 -lm \
        `pkg-config --cflags --libs $(DEPS)`
 
 tags: TAGS

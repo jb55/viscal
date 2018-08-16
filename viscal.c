@@ -57,15 +57,16 @@ struct ical {
 };
 
 struct event {
-  icalcomponent *vevent;
-  struct ical *ical;
+	icalcomponent *vevent;
+	struct ical *ical;
 
-  enum event_flags flags;
-  // set on draw
-  double width, height;
-  double x, y;
-  double dragx, dragy;
-  time_t drag_time;
+	enum event_flags flags;
+	// set on draw
+	double width, height;
+	double x, y;
+	double dragx, dragy;
+	double dragx_start, dragy_off;
+	time_t drag_time;
 };
 
 struct cal {
@@ -432,53 +433,61 @@ events_hit (struct event *events, int nevents, double mx, double my) {
 
 static int
 on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
-  struct extra_data *data = (struct extra_data*)user_data;
-  struct cal *cal = data->cal;
-  double mx = ev->x;
-  double my = ev->y;
-  int state_changed = 1;
+	struct extra_data *data = (struct extra_data*)user_data;
+	struct cal *cal = data->cal;
+	double mx = ev->x;
+	double my = ev->y;
+	int state_changed = 1;
 
-  switch (ev->type) {
-  case GDK_BUTTON_PRESS:
-    cal->flags |= CAL_MDOWN;
-    cal->target = events_hit(cal->events, cal->nevents, mx, my);
-    break;
-  case GDK_BUTTON_RELEASE:
-    if ((cal->flags & CAL_DRAGGING) != 0) {
-      // finished drag
-      // TODO: handle drop into and out of gutter
-      calendar_drop(cal, mx, my);
-    }
-    else {
-      // clicked target
-      if (cal->target)
-        event_click(cal, cal->target, mx, my);
-      else if (my < cal->y) {
-        // TODO: gutter clicked, create date event + increase gutter size
-      }
-      else {
-        calendar_view_clicked(cal, mx, my - cal->y);
-      }
-    }
-    // finished dragging
-    cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
+	switch (ev->type) {
+	case GDK_BUTTON_PRESS:
+		cal->flags |= CAL_MDOWN;
+		cal->target = events_hit(cal->events, cal->nevents, mx, my);
+		if (cal->target) {
+			cal->target->dragx_start = mx;
+			cal->target->dragy_off = cal->target->y - my;
+		}
+		break;
+	case GDK_BUTTON_RELEASE:
+		if ((cal->flags & CAL_DRAGGING) != 0) {
+			// finished drag
+			// TODO: handle drop into and out of gutter
+			calendar_drop(cal, mx, my);
+		}
+		else {
+			// clicked target
+			if (cal->target)
+				event_click(cal, cal->target, mx, my);
+			else if (my < cal->y) {
+				// TODO: gutter clicked, create date event + increase gutter size
+			}
+			else {
+				calendar_view_clicked(cal, mx, my - cal->y);
+			}
+		}
 
-    // clear target drag state
-    if (cal->target) {
-      cal->target->dragx = 0.0;
-      cal->target->dragy = 0.0;
-      cal->target->drag_time =
-        icaltime_as_timet(icalcomponent_get_dtstart(cal->target->vevent));
-      cal->target = NULL;
-    }
-    break;
-  default: state_changed = 0; break;
-  }
+		// finished dragging
+		cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
 
-  if (state_changed)
-    on_state_change(widget, (GdkEvent*)ev, user_data);
+		// clear target drag state
+		if (cal->target) {
+			cal->target->dragx = 0.0;
+			cal->target->dragy = 0.0;
+			cal->target->drag_time =
+				icaltime_as_timet(icalcomponent_get_dtstart(cal->target->vevent));
+			cal->target = NULL;
+		}
+		break;
 
-  return 1;
+	default:
+		state_changed = 0;
+		break;
+	}
+
+	if (state_changed)
+		on_state_change(widget, (GdkEvent*)ev, user_data);
+
+	return 1;
 }
 
 static struct event*
@@ -492,32 +501,33 @@ event_any_flags(struct event *events, int nevents, int flag) {
 
 static int
 on_scroll(GtkWidget *widget, GdkEventScroll *ev, gpointer user_data) {
-  // TODO: GtkGestureZoom
-  // https://developer.gnome.org/gtk3/stable/GtkGestureZoom.html
-  struct extra_data *data = (struct extra_data*)user_data;
-  struct cal *cal = data->cal;
-  double newzoom = cal->zoom - ev->delta_y * 0.1;
+	// TODO: GtkGestureZoom
+	// https://developer.gnome.org/gtk3/stable/GtkGestureZoom.html
+	struct extra_data *data = (struct extra_data*)user_data;
+	struct cal *cal = data->cal;
+	double newzoom = cal->zoom - ev->delta_y * 0.1;
 
-  if (newzoom < ZOOM_MIN) {
-    newzoom = ZOOM_MIN;
-  }
-  else if (newzoom > ZOOM_MAX) {
-    newzoom = ZOOM_MAX;
-  }
+	if (newzoom < ZOOM_MIN) {
+		newzoom = ZOOM_MIN;
+	}
+	else if (newzoom > ZOOM_MAX) {
+		newzoom = ZOOM_MAX;
+	}
 
-  cal->zoom = newzoom;
-  cal->zoom_at = cal->my;
+	cal->zoom = newzoom;
+	cal->zoom_at = cal->my;
 
-  on_state_change(widget, (GdkEvent*)ev, user_data);
+	on_state_change(widget, (GdkEvent*)ev, user_data);
 
-  return 0;
+	return 0;
 }
 
 static void
 update_event_flags (struct event *ev, double mx, double my) {
-	int hit = event_hit(ev, mx, my);
-	if (hit) ev->flags |=  EV_HIGHLIGHTED;
-	else     ev->flags &= ~EV_HIGHLIGHTED;
+	if (event_hit(ev, mx, my))
+		ev->flags |=  EV_HIGHLIGHTED;
+	else
+		ev->flags &= ~EV_HIGHLIGHTED;
 }
 
 
@@ -576,7 +586,7 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 	prev_hit = hit;
 
 	if (state_changed)
-	on_state_change(widget, (GdkEvent*)ev, user_data);
+		on_state_change(widget, (GdkEvent*)ev, user_data);
 
 	return 1;
 }
@@ -752,10 +762,10 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	// TODO: date-event stacking
 	double y = ev->y;
 
-	printf("utc? %s dstart hour %d min %d\n",
-	       dtstart.is_utc? "yes" : "no",
-	       dtstart.hour,
-	       dtstart.minute);
+	/* printf("utc? %s dstart hour %d min %d\n", */
+	/*        dtstart.is_utc? "yes" : "no", */
+	/*        dtstart.hour, */
+	/*        dtstart.minute); */
 
 	time_t st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
 	time_t et = icaltime_as_timet_with_zone(dtend, dtend.zone);
@@ -805,7 +815,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	else {
 		format_locale_timet(bsmall, 32, st);
 		format_locale_timet(bsmall2, 32, et);
-		printf("%ld %ld start %s end %s\n", st, et, bsmall, bsmall2);
+		/* printf("%ld %ld start %s end %s\n", st, et, bsmall, bsmall2); */
 		// TODO: configurable event format
 		sprintf(buffer, "%s (%d)", summary, (int)len / 60);
 		cairo_text_extents(cr, buffer, &exts);

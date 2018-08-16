@@ -606,10 +606,11 @@ calendar_time_to_loc(struct cal *cal, time_t time) {
 static void
 event_update (struct event *ev, struct cal *cal)
 {
-	icaltimetype evtime = icalcomponent_get_dtstart(ev->vevent);
-	icaltime_span span = icalcomponent_get_span(ev->vevent);
-	int isdate = evtime.is_date;
+	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
+	icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
+	int isdate = dtstart.is_date;
 	double sx, sy, y, eheight, height, width;
+
 
 	height = cal->height;
 	width = cal->width;
@@ -624,8 +625,12 @@ event_update (struct event *ev, struct cal *cal)
 		y = EVPAD;
 	}
 	else {
-		double sloc = calendar_time_to_loc(cal, span.start);
-		double eloc = calendar_time_to_loc(cal, span.end);
+		// convert to local time
+		time_t st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+		time_t et = icaltime_as_timet_with_zone(dtend, dtend.zone);
+
+		double sloc = calendar_time_to_loc(cal, st);
+		double eloc = calendar_time_to_loc(cal, et);
 
 		double dloc = eloc - sloc;
 		eheight = dloc * height;
@@ -740,6 +745,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
 	icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
 	int isdate = dtstart.is_date;
+
 	double x = ev->x;
 	// TODO: date-event stacking
 	double y = ev->y;
@@ -749,8 +755,8 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	       dtstart.hour,
 	       dtstart.minute);
 
-	time_t st = icaltime_as_timet(dtstart);
-	time_t et = icaltime_as_timet(dtend);
+	time_t st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+	time_t et = icaltime_as_timet_with_zone(dtend, dtend.zone);
 	time_t len = et - st;
 	cairo_text_extents_t exts;
 

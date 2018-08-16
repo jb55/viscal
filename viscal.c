@@ -446,6 +446,7 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 		if (cal->target) {
 			cal->target->dragx_start = mx;
 			cal->target->dragy_off = cal->target->y - my;
+			cal->target->dragx_off = cal->target->x - mx;
 		}
 		break;
 	case GDK_BUTTON_RELEASE:

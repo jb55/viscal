@@ -571,7 +571,8 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 		if (cal->target) {
 			dragging_event = 1;
 			cal->target->dragx = px - cal->target->x;
-			cal->target->dragy = py - cal->target->y - cal->y;
+			cal->target->dragy =
+				cal->target->dragy_off + py - cal->target->y - cal->y;
 		}
 	}
 

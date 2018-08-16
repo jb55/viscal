@@ -7,17 +7,17 @@ DEPS=libical gtk+-3.0
 
 CFLAGS=-Wall \
        -Wextra \
-       -O0 \
+       -O2 \
        -Wno-unused-parameter \
        -Werror=int-conversion \
 			 -std=c99 \
-			 -g \
+			 -ggdb \
 			 -lm \
        `pkg-config --cflags --libs $(DEPS)`
 
 tags: TAGS
 
-$(BIN): calendar.c Makefile
+$(BIN): viscal.c Makefile
 	$(CC) $(CFLAGS) -o $@ $<
 
 TAGS:

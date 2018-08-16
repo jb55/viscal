@@ -264,27 +264,29 @@ calendar_load_ical(struct cal *cal, char *path) {
 
 static void
 calendar_drop(struct cal *cal, double mx, double my) {
-  struct event *ev = cal->target;
-  if (ev) {
-    icaltime_span span = icalcomponent_get_span(ev->vevent);
+	struct event *ev = cal->target;
 
-    // TODO: use default event length when dragging from gutter?
-    time_t len = span.end - span.start;
+	if (!ev)
+		return;
 
-    // XXX: should dragging timezone be the local timezone?
-    // XXX: this will probably destroy the timezone, we don't want that
-    // TODO: convert timezone on drag?
+	icaltime_span span = icalcomponent_get_span(ev->vevent);
 
-    icaltimetype startt =
-      icaltime_from_timet(ev->drag_time, 0);
+	// TODO: use default event length when dragging from gutter?
+	time_t len = span.end - span.start;
 
-    icalcomponent_set_dtstart(ev->vevent, startt);
+	// XXX: should dragging timezone be the local timezone?
+	// XXX: this will probably destroy the timezone, we don't want that
+	// TODO: convert timezone on drag?
 
-    icaltimetype endt =
-      icaltime_from_timet(ev->drag_time + len, 0);
+	icaltimetype startt =
+	icaltime_from_timet(ev->drag_time, 0);
 
-    icalcomponent_set_dtend(ev->vevent, endt);
-  }
+	icalcomponent_set_dtstart(ev->vevent, startt);
+
+	icaltimetype endt =
+	icaltime_from_timet(ev->drag_time + len, 0);
+
+	icalcomponent_set_dtend(ev->vevent, endt);
 }
 
 

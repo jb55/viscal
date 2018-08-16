@@ -639,7 +639,7 @@ event_update (struct event *ev, struct cal *cal)
 }
 
 static void
-calendar_update (struct cal *cal) {
+update_calendar (struct cal *cal) {
 	int i, width, height;
 	width = cal->width;
 	height = cal->height;
@@ -831,7 +831,7 @@ draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
 
 
 static int
-calendar_draw (cairo_t *cr, struct cal *cal) {
+draw_calendar (cairo_t *cr, struct cal *cal) {
 	int i, width, height;
 	time_t now;
 	width = cal->width;
@@ -872,6 +872,11 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 	}
 
 	cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
+	cairo_set_font_size(cr, 12);
+	cairo_select_font_face(cr,
+				"sans",
+				CAIRO_FONT_SLANT_NORMAL,
+				CAIRO_FONT_WEIGHT_NORMAL);
 
 	gtk_window_get_size(data->win, &width, &height);
 
@@ -880,8 +885,8 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 	cal->width = width - cal->x;
 	cal->height = height - cal->y;
 
-	calendar_update(cal);
-	calendar_draw(cr, cal);
+	update_calendar(cal);
+	draw_calendar(cr, cal);
 
 	return FALSE;
 }

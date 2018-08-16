@@ -65,7 +65,7 @@ struct event {
 	double width, height;
 	double x, y;
 	double dragx, dragy;
-	double dragx_start, dragy_off;
+	double dragx_off, dragy_off;
 	time_t drag_time;
 };
 

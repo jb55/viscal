@@ -297,7 +297,7 @@ location_to_time(time_t start, time_t end, double loc) {
 
 static time_t
 calendar_loc_to_time(struct cal *cal, double y) {
-	// XXX: this is wrong wrt. zoom
+	// TODO: this is wrong wrt. zoom
 	return location_to_time(cal->view_start, cal->view_end,
 				y/((double)cal->height * cal->zoom));
 }
@@ -724,7 +724,7 @@ draw_hours (cairo_t *cr, struct cal* cal)
 
 
 static void
-event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
+draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	// double height = Math.fmin(, MIN_EVENT_HEIGHT);
 	// stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
 	// 			  sloc, eloc, dloc, eheight);
@@ -736,17 +736,26 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
 	int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
 	double evheight = max(1.0, ev->height - EVMARGIN);
 	/* double evwidth = ev->width; */
+	/* icaltimezone *tz = icalcomponent_get_timezone(ev->vevent, "UTC"); */
 	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
 	icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
 	int isdate = dtstart.is_date;
 	double x = ev->x;
 	// TODO: date-event stacking
 	double y = ev->y;
+
+	printf("utc? %s dstart hour %d min %d\n",
+	       dtstart.is_utc? "yes" : "no",
+	       dtstart.hour,
+	       dtstart.minute);
+
 	time_t st = icaltime_as_timet(dtstart);
 	time_t et = icaltime_as_timet(dtend);
 	time_t len = et - st;
 	cairo_text_extents_t exts;
-	const char * const summary = icalcomponent_get_summary(ev->vevent);
+
+	const char * const summary =
+		icalcomponent_get_summary(ev->vevent);
 
 	if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
 		c.a *= 0.95;
@@ -788,8 +797,9 @@ event_draw (cairo_t *cr, struct cal *cal, struct event *ev) {
 	else {
 		format_locale_timet(bsmall, 32, st);
 		format_locale_timet(bsmall2, 32, et);
+		printf("%ld %ld start %s end %s\n", st, et, bsmall, bsmall2);
 		// TODO: configurable event format
-		sprintf(buffer, "%d  %s", (int)len / 60, summary);
+		sprintf(buffer, "%s (%d)", summary, (int)len / 60);
 		cairo_text_extents(cr, buffer, &exts);
 		double ey = evheight < exts.height
 			? y + TXTPAD - EVPAD
@@ -844,7 +854,7 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	// draw calendar events
 	for (i = 0; i < cal->nevents; ++i) {
 		struct event *ev = &cal->events[i];
-		event_draw(cr, cal, ev);
+		draw_event(cr, cal, ev);
 	}
 
 	draw_time_line(cr, cal, time(&now));

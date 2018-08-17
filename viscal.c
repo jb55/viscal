@@ -444,7 +444,6 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 		cal->flags |= CAL_MDOWN;
 		cal->target = events_hit(cal->events, cal->nevents, mx, my);
 		if (cal->target) {
-			cal->target->dragx_start = mx;
 			cal->target->dragy_off = cal->target->y - my;
 			cal->target->dragx_off = cal->target->x - mx;
 		}
@@ -950,9 +949,11 @@ int main(int argc, char *argv[])
 	if (argc < 2)
 		usage();
 
-	printf("loading calendar %s\n", argv[1]);
-	ical = calendar_load_ical(&cal, argv[1]);
-	ical->color = defcol;
+	for (int i = 1; i < argc; i++) {
+		printf("loading calendar %s\n", argv[i]);
+		ical = calendar_load_ical(&cal, argv[i]);
+		ical->color = defcol;
+	}
 
 	on_change_view(&cal);
 

@@ -42,6 +42,7 @@ enum event_flags {
 enum cal_flags {
     CAL_MDOWN    = 1 << 0
   , CAL_DRAGGING = 1 << 1
+  , CAL_SPLIT    = 1 << 2
 };
 
 union rgba {
@@ -926,6 +927,11 @@ void usage() {
 	exit(1);
 }
 
+static inline double rand_0to1() {
+	return (double) rand() / RAND_MAX;
+}
+
+
 int main(int argc, char *argv[])
 {
 	GtkWidget *window;
@@ -949,10 +955,18 @@ int main(int argc, char *argv[])
 	if (argc < 2)
 		usage();
 
+	srand(0);
+
 	for (int i = 1; i < argc; i++) {
 		printf("loading calendar %s\n", argv[i]);
 		ical = calendar_load_ical(&cal, argv[i]);
+
+		// TODO: configure colors from cli?
 		ical->color = defcol;
+		ical->color.r = rand_0to1();
+		ical->color.g = rand_0to1();
+		ical->color.b = rand_0to1();
+		ical->color.a = 1.0;
 	}
 
 	on_change_view(&cal);

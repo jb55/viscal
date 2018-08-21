@@ -1003,11 +1003,16 @@ int main(int argc, char *argv[])
 		ical = calendar_load_ical(&cal, argv[i]);
 
 		// TODO: configure colors from cli?
-		ical->color = defcol;
-		ical->color.r = rand_0to1();
-		ical->color.g = rand_0to1();
-		ical->color.b = rand_0to1();
-		ical->color.a = 1.0;
+		if (ical != NULL) {
+			ical->color = defcol;
+			ical->color.r = rand_0to1();
+			ical->color.g = rand_0to1();
+			ical->color.b = rand_0to1();
+			ical->color.a = 1.0;
+		}
+		else {
+			printf("failed to load calendar\n");
+		}
 	}
 
 	on_change_view(&cal);

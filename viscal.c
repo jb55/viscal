@@ -741,6 +741,24 @@ draw_hours (cairo_t *cr, struct cal* cal)
 	}
 }
 
+static void
+format_time_duration(char *buf, int bufsize, int seconds)
+{
+	int hours = seconds / 60 / 60;
+	seconds -= hours * 60 * 60;
+
+	int minutes = seconds / 60;
+	seconds -= minutes * 60;
+
+	if (hours == 0 && minutes == 0)
+		snprintf(buf, bufsize, "%ds", seconds);
+	else if (hours != 0 && minutes == 0)
+		snprintf(buf, bufsize, "%dh", hours);
+	else if (hours == 0 && minutes != 0)
+		snprintf(buf, bufsize, "%dm", minutes);
+	else
+		snprintf(buf, bufsize, "%dh%dm", hours, minutes);
+}
 
 static void
 draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
@@ -819,7 +837,31 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 		format_locale_timet(bsmall2, 32, et);
 		/* printf("%ld %ld start %s end %s\n", st, et, bsmall, bsmall2); */
 		// TODO: configurable event format
-		sprintf(buffer, "%s (%d)", summary, (int)len / 60);
+		char duration_format[32] = {0};
+		char duration_format_in[32] = {0};
+		char duration_format_out[32] = {0};
+		time_t now, in, out;
+		time(&now);
+
+		in = now - st;
+		out = et - now;
+
+		format_time_duration(duration_format, sizeof(duration_format), len);
+		format_time_duration(duration_format_in, sizeof(duration_format), in);
+		format_time_duration(duration_format_out, sizeof(duration_format), out);
+
+		if (out >= 0 && in >= 0 && out < len)
+			sprintf(buffer, "%s | %s | %s in | %s left", summary,
+				duration_format,
+				duration_format_in,
+				duration_format_out);
+		else if (in >= 0 && in < 0)
+			sprintf(buffer, "%s | %s | %s in", summary,
+				duration_format,
+				duration_format_in);
+		else
+			sprintf(buffer, "%s | %s", summary, duration_format);
+
 		cairo_text_extents(cr, buffer, &exts);
 		double ey = evheight < exts.height
 			? y + TXTPAD - EVPAD
@@ -857,8 +899,7 @@ draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
 	/* cairo_set_source_rgb (cr, 0, 0, 0); */
 	/* draw_line(cr, cal->x, y + 1, w); */
 	/* cairo_stroke(cr); */
-} 
-
+}
 
 static int
 draw_calendar (cairo_t *cr, struct cal *cal) {

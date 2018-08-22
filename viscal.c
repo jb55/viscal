@@ -157,12 +157,23 @@ span_overlaps(time_t start1, time_t end1, time_t start2, time_t end2) {
 }
 
 
+static void event_local_span(icalcomponent *vevent, time_t *st, time_t *et)
+{
+	icaltimetype dtstart = icalcomponent_get_dtstart(vevent);
+	icaltimetype dtend = icalcomponent_get_dtend(vevent);
 
+	*st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+	*et = icaltime_as_timet_with_zone(dtend, dtend.zone);
+}
 
 static int
 vevent_in_view(icalcomponent *vevent, time_t start, time_t end) {
-	icaltime_span span = icalcomponent_get_span(vevent);
-	return span_overlaps(span.start, span.end, start, end);
+	/* printf("vevent_in_view span.start %d span.end %d start %d end %d\n", */
+	/* 	span.start, span.end, start, end); */
+	time_t st, et;
+	event_local_span(vevent, &st, &et);
+	return span_overlaps(st, et, start, end);
+
 }
 
 static void
@@ -212,12 +223,25 @@ calendar_print_state(struct cal *cal) {
 	fflush(stdout);
 }
 
+static void
+calendar_refresh_events(struct cal *cal) {
+	cal->refresh_events = 1;
+	gtk_widget_queue_draw(cal->widget);
+}
+
+
+
 static int
 on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
-	/* struct extra_data *data = (struct extra_data*)user_data; */
+	struct extra_data *data = (struct extra_data*)user_data;
+	struct cal *cal = data->cal;
 
+	printf("cal %p\n", cal);
+	if (cal)
+		calendar_refresh_events(cal);
+	else
+		gtk_widget_queue_draw(cal->widget);
 	/* calendar_print_state(cal); */
-	gtk_widget_queue_draw(widget);
 
 	return 1;
 }
@@ -296,7 +320,7 @@ calendar_drop(struct cal *cal, double mx, double my) {
 	// TODO: convert timezone on drag?
 
 	icaltimetype startt =
-	icaltime_from_timet(ev->drag_time, 0);
+		icaltime_from_timet(ev->drag_time, 0);
 
 	icalcomponent_set_dtstart(ev->vevent, startt);
 
@@ -344,13 +368,6 @@ calendar_def_cal(struct cal *cal) {
     return cal->calendars[0].calendar;
   return NULL;
 }
-
-static void
-calendar_refresh_events(struct cal *cal) {
-  cal->refresh_events = 1;
-  gtk_widget_queue_draw(cal->widget);
-}
-
 
 static time_t
 closest_timeblock(struct cal *cal, int y) {
@@ -728,8 +745,8 @@ event_update (struct event *ev, struct cal *cal)
 	}
 	else {
 		// convert to local time
-		time_t st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
-		time_t et = icaltime_as_timet_with_zone(dtend, dtend.zone);
+		time_t st, et;
+		event_local_span(ev->vevent, &st, &et);
 
 		double sloc = calendar_time_to_loc(cal, st);
 		double eloc = calendar_time_to_loc(cal, et);
@@ -753,6 +770,7 @@ update_calendar (struct cal *cal) {
 
 	width  -= cal->x;
 	height -= cal->y * 2;
+	printf("update calendar %d\n", cal->refresh_events);
 
 	if (cal->refresh_events) {
 		on_change_view(cal);
@@ -868,6 +886,9 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
 	int isdate = dtstart.is_date;
 
+	time_t st, et;
+	event_local_span(ev->vevent, &st, &et);
+
 	double x = ev->x;
 	// TODO: date-event stacking
 	double y = ev->y;
@@ -877,8 +898,6 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	/*        dtstart.hour, */
 	/*        dtstart.minute); */
 
-	time_t st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
-	time_t et = icaltime_as_timet_with_zone(dtend, dtend.zone);
 	time_t len = et - st;
 	cairo_text_extents_t exts;
 
@@ -901,6 +920,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	/* y -= EVMARGIN; */
 
 	cairo_move_to(cr, x, y);
+	printf("drawing %s at %f %f\n", summary, x, y);
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
 	cairo_fill(cr);
@@ -1003,6 +1023,7 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	draw_hours(cr, cal);
 
 	// draw calendar events
+	printf("drawing calendar with %d events\n", cal->nevents);
 	for (i = 0; i < cal->nevents; ++i) {
 		struct event *ev = &cal->events[i];
 		draw_event(cr, cal, ev);

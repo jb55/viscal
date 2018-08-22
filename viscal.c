@@ -134,7 +134,7 @@ calendar_create(struct cal *cal) {
   cal->today = today;
   cal->x = g_lmargin;
   cal->y = cal->gutter_height;
-  cal->zoom = 1.0;
+  cal->zoom = 2.0;
 }
 
 

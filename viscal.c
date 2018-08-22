@@ -469,7 +469,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 	int state_changed = 1;
 	int i = 0;
 	static const int scroll_amt = 60*60;
-	static const int zoom_amt = 2.0;
+	static const int zoom_amt = 1.5;
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:

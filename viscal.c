@@ -87,8 +87,7 @@ struct cal {
   int gutter_height;
   double zoom, zoom_at;
 
-  time_t view_start;
-  time_t view_end;
+  time_t today, start_at;
 
   int height, width;
 };
@@ -114,7 +113,7 @@ static void
 calendar_create(struct cal *cal) {
   time_t now;
   time_t today;
-  int start_at = 0;
+  cal->start_at = 60*60*8;
   struct tm nowtm;
 
   now = time(NULL);
@@ -127,12 +126,24 @@ calendar_create(struct cal *cal) {
   cal->minute_round = 30;
   cal->ncalendars = 0;
   cal->nevents = 0;
-  cal->view_end = today + DAY_SECONDS;
-  cal->view_start = today + start_at;
+  cal->today = today;
   cal->x = g_lmargin;
   cal->y = cal->gutter_height;
   cal->zoom = 1.0;
 }
+
+
+static time_t calendar_view_end(struct cal *cal)
+{
+	return cal->today + cal->start_at + DAY_SECONDS;
+}
+
+
+static time_t calendar_view_start(struct cal *cal)
+{
+	return cal->today + cal->start_at;
+}
+
 
 
 static int
@@ -180,7 +191,7 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 
 static void
 on_change_view(struct cal *cal) {
-  events_for_view(cal, cal->view_start, cal->view_end);
+  events_for_view(cal, calendar_view_start(cal), calendar_view_end(cal));
 }
 
 
@@ -302,7 +313,8 @@ location_to_time(time_t start, time_t end, double loc) {
 static time_t
 calendar_loc_to_time(struct cal *cal, double y) {
 	// TODO: this is wrong wrt. zoom
-	return location_to_time(cal->view_start, cal->view_end,
+	return location_to_time(calendar_view_start(cal),
+				calendar_view_end(cal),
 				y/((double)cal->height * cal->zoom));
 }
 
@@ -612,7 +624,8 @@ time_to_location (time_t start, time_t end, time_t time) {
 static double
 calendar_time_to_loc(struct cal *cal, time_t time) {
 	// ZOOM
-	return time_to_location(cal->view_start, cal->view_end, time) * cal->zoom;
+	return time_to_location(calendar_view_start(cal),
+				calendar_view_end(cal), time) * cal->zoom;
 }
 
 
@@ -710,7 +723,8 @@ draw_hours (cairo_t *cr, struct cal* cal)
 
 	// TODO: dynamic section subdivide on zoom?
 	for (int section = 0; section < 48; section++) {
-		int minutes = section * 30;
+		int start_section = (cal->start_at / 60 / 60) * 2;
+		int minutes = (start_section + section) * 30;
 		int onhour = ((minutes / 30) % 2) == 0;
 		if (section_height < 14 && !onhour)
 			continue;

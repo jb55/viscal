@@ -129,7 +129,7 @@ calendar_create(struct cal *cal) {
   cal->ncalendars = 0;
   cal->nevents = 0;
   cal->start_at = 5*60*60;
-  cal->scroll = 5*60*60;
+  cal->scroll = 0;
   cal->repeat = 1;
   cal->today = today;
   cal->x = g_lmargin;
@@ -495,6 +495,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 				cal->chord = 'z';
 			}
 			else if (cal->chord == 'z') {
+				// TODO: center around current time
 				cal->chord = 0;
 				cal->repeat = 1;
 			}

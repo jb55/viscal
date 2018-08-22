@@ -71,25 +71,27 @@ struct event {
 };
 
 struct cal {
-  GtkWidget *widget;
-  struct ical calendars[128];
-  int ncalendars;
+	GtkWidget *widget;
+	struct ical calendars[128];
+	int ncalendars;
 
-  struct event events[MAX_EVENTS];
-  int nevents;
+	struct event events[MAX_EVENTS];
+	int nevents;
+	char chord;
+	int repeat;
 
-  enum cal_flags flags;
-  // TODO: make multiple target selection
-  struct event *target;
-  int minute_round;
-  int refresh_events;
-  int x, y, mx, my;
-  int gutter_height;
-  double zoom, zoom_at;
+	enum cal_flags flags;
+	// TODO: make multiple target selection
+	struct event *target;
+	int minute_round;
+	int refresh_events;
+	int x, y, mx, my;
+	int gutter_height;
+	double zoom, zoom_at;
 
-  time_t today, start_at;
+	time_t today, start_at, scroll;
 
-  int height, width;
+	int height, width;
 };
 
 struct extra_data {
@@ -121,11 +123,14 @@ calendar_create(struct cal *cal) {
   nowtm.tm_min = 0;
   today = mktime(&nowtm);
 
+  cal->chord = 0;
   cal->gutter_height = 40;
   cal->minute_round = 30;
   cal->ncalendars = 0;
   cal->nevents = 0;
   cal->start_at = 5*60*60;
+  cal->scroll = 5*60*60;
+  cal->repeat = 1;
   cal->today = today;
   cal->x = g_lmargin;
   cal->y = cal->gutter_height;
@@ -135,13 +140,13 @@ calendar_create(struct cal *cal) {
 
 static time_t calendar_view_end(struct cal *cal)
 {
-	return cal->today + cal->start_at + DAY_SECONDS;
+	return cal->today + cal->start_at + cal->scroll + DAY_SECONDS;
 }
 
 
 static time_t calendar_view_start(struct cal *cal)
 {
-	return cal->today + cal->start_at;
+	return cal->today + cal->start_at + cal->scroll;
 }
 
 
@@ -209,10 +214,9 @@ calendar_print_state(struct cal *cal) {
 
 static int
 on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
-	struct extra_data *data = (struct extra_data*)user_data;
-	struct cal *cal = data->cal;
+	/* struct extra_data *data = (struct extra_data*)user_data; */
 
-	calendar_print_state(cal);
+	/* calendar_print_state(cal); */
 	gtk_widget_queue_draw(widget);
 
 	return 1;
@@ -443,6 +447,86 @@ events_hit (struct event *events, int nevents, double mx, double my) {
 	return NULL;
 }
 
+static void zoom(struct cal *cal, double amt) {
+	double newzoom = cal->zoom - amt * max(0.1, log(cal->zoom)) * 0.5;
+
+	if (newzoom < ZOOM_MIN) {
+		newzoom = ZOOM_MIN;
+	}
+	else if (newzoom > ZOOM_MAX) {
+		newzoom = ZOOM_MAX;
+	}
+
+	cal->zoom = newzoom;
+	cal->zoom_at = cal->my;
+}
+
+static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
+{
+	struct extra_data *data = (struct extra_data*)user_data;
+	struct cal *cal = data->cal;
+	char key;
+	int state_changed = 1;
+	int i = 0;
+	static const int scroll_amt = 60*60;
+	static const int zoom_amt = 2.0;
+
+	switch (event->type) {
+	case GDK_KEY_PRESS:
+		key = *event->key.string;
+		int nkey = key - '0';
+
+		if (nkey >= 2 && nkey <= 9) {
+			cal->repeat = nkey;
+			break;
+		}
+
+		switch (key) {
+		case 'd':
+			cal->scroll += scroll_amt;
+			cal->repeat = 1;
+			break;
+		case 'u':
+			cal->scroll -= scroll_amt;
+			cal->repeat = 1;
+			break;
+		case 'z':
+			if (cal->chord == 0) {
+				cal->chord = 'z';
+			}
+			else if (cal->chord == 'z') {
+				cal->chord = 0;
+				cal->repeat = 1;
+			}
+			break;
+		case 'i':
+			if (cal->chord == 'z') {
+				for (i=0; i < cal->repeat; i++)
+					zoom(cal, -zoom_amt);
+				cal->repeat = 1;
+				cal->chord = 0;
+			}
+			break;
+		case 'o':
+			if (cal->chord == 'z') {
+				for (i=0; i < cal->repeat; i++)
+					zoom(cal, zoom_amt);
+				cal->repeat = 1;
+				cal->chord = 0;
+			}
+			break;
+		}
+		break;
+	default:
+		state_changed = 0;
+		break;
+	}
+
+	if (state_changed)
+		on_state_change(widget, event, user_data);
+
+	return 1;
+}
 
 static int
 on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
@@ -518,19 +602,9 @@ on_scroll(GtkWidget *widget, GdkEventScroll *ev, gpointer user_data) {
 	// https://developer.gnome.org/gtk3/stable/GtkGestureZoom.html
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
-	double newzoom = cal->zoom - ev->delta_y * 0.1;
-
-	if (newzoom < ZOOM_MIN) {
-		newzoom = ZOOM_MIN;
-	}
-	else if (newzoom > ZOOM_MAX) {
-		newzoom = ZOOM_MAX;
-	}
-
-	cal->zoom = newzoom;
-	cal->zoom_at = cal->my;
 
 	on_state_change(widget, (GdkEvent*)ev, user_data);
+	zoom(cal, ev->delta_y);
 
 	return 0;
 }
@@ -723,11 +797,12 @@ draw_hours (cairo_t *cr, struct cal* cal)
 
 	// TODO: dynamic section subdivide on zoom?
 	for (int section = 0; section < 48; section++) {
-		int start_section = (cal->start_at / 60 / 60) * 2;
+		int start_section = ((cal->start_at + cal->scroll) / 60 / 60) * 2;
 		int minutes = (start_section + section) * 30;
 		int onhour = ((minutes / 30) % 2) == 0;
 		if (section_height < 14 && !onhour)
 			continue;
+
 		double y = cal->y + ((double)section) * section_height;
 		cairo_move_to (cr, cal->x, y);
 		cairo_rel_line_to (cr, width, 0);
@@ -1066,10 +1141,16 @@ int main(int argc, char *argv[])
 
 	g_signal_connect(G_OBJECT(darea), "button-press-event",
 			G_CALLBACK(on_press), (gpointer)&extra_data);
+
+	g_signal_connect(window, "key-press-event",
+			 G_CALLBACK(on_keypress), (gpointer)&extra_data);
+
 	g_signal_connect(G_OBJECT(darea), "button-release-event",
 			G_CALLBACK(on_press), (gpointer)&extra_data);
+
 	g_signal_connect(G_OBJECT(darea), "motion-notify-event",
 			G_CALLBACK(on_motion), (gpointer)&extra_data);
+
 	g_signal_connect(G_OBJECT(darea), "scroll-event",
 			G_CALLBACK(on_scroll), (gpointer)&extra_data);
 
@@ -1077,13 +1158,16 @@ int main(int argc, char *argv[])
 			G_CALLBACK(on_draw_event), (gpointer)&extra_data);
 
 	g_signal_connect(window, "destroy",
-	G_CALLBACK(gtk_main_quit), NULL);
+			 G_CALLBACK(gtk_main_quit), NULL);
 
 	gtk_widget_set_events(darea, GDK_BUTTON_PRESS_MASK
 				| GDK_BUTTON_RELEASE_MASK
+				| GDK_KEY_PRESS_MASK
+				| GDK_KEY_RELEASE_MASK
 				| GDK_SCROLL_MASK
 				| GDK_SMOOTH_SCROLL_MASK
 				| GDK_POINTER_MOTION_MASK);
+
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_window_set_default_size(GTK_WINDOW(window), 400, 800);
 	gtk_window_set_title(GTK_WINDOW(window), "viscal");

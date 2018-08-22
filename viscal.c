@@ -236,7 +236,6 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
 
-	printf("cal %p\n", cal);
 	if (cal)
 		calendar_refresh_events(cal);
 	else
@@ -770,7 +769,6 @@ update_calendar (struct cal *cal) {
 
 	width  -= cal->x;
 	height -= cal->y * 2;
-	printf("update calendar %d\n", cal->refresh_events);
 
 	if (cal->refresh_events) {
 		on_change_view(cal);
@@ -920,7 +918,6 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	/* y -= EVMARGIN; */
 
 	cairo_move_to(cr, x, y);
-	printf("drawing %s at %f %f\n", summary, x, y);
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
 	cairo_fill(cr);
@@ -1023,7 +1020,6 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	draw_hours(cr, cal);
 
 	// draw calendar events
-	printf("drawing calendar with %d events\n", cal->nevents);
 	for (i = 0; i < cal->nevents; ++i) {
 		struct event *ev = &cal->events[i];
 		draw_event(cr, cal, ev);

@@ -113,7 +113,6 @@ static void
 calendar_create(struct cal *cal) {
   time_t now;
   time_t today;
-  cal->start_at = 60*60*8;
   struct tm nowtm;
 
   now = time(NULL);
@@ -126,6 +125,7 @@ calendar_create(struct cal *cal) {
   cal->minute_round = 30;
   cal->ncalendars = 0;
   cal->nevents = 0;
+  cal->start_at = 5*60*60;
   cal->today = today;
   cal->x = g_lmargin;
   cal->y = cal->gutter_height;
@@ -741,7 +741,7 @@ draw_hours (cairo_t *cr, struct cal* cal)
 		cairo_set_dash (cr, NULL, 0, 0);
 
 		if (onhour) {
-			format_margin_time(buffer, 32, minutes / 60);
+			format_margin_time(buffer, 32, (minutes / 60) % 24);
 			// TODO: text extents for proper time placement?
 			cairo_move_to(cr, g_lmargin - (g_margin_time_w + EVPAD),
 				      y+TXTPAD);

@@ -1,0 +1,14 @@
+
+* Current 
+
+
+* Keys
+
+** TODO t -> now
+
+* UI
+
+** TODO remember scroll and zoom position?
+
+** TODO minimum event height for instantaneous events
+Right now they have a height of 0

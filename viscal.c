@@ -114,13 +114,14 @@ static const double dashed[] = {1.0};
 static void
 calendar_create(struct cal *cal) {
   time_t now;
-  time_t today;
+  time_t today, nowh;
   struct tm nowtm;
 
   now = time(NULL);
   nowtm = *localtime(&now);
-  nowtm.tm_hour = 0;
   nowtm.tm_min = 0;
+  nowh = mktime(&nowtm);
+  nowtm.tm_hour = 0;
   today = mktime(&nowtm);
 
   cal->chord = 0;
@@ -128,7 +129,7 @@ calendar_create(struct cal *cal) {
   cal->minute_round = 30;
   cal->ncalendars = 0;
   cal->nevents = 0;
-  cal->start_at = 5*60*60;
+  cal->start_at = nowh - today - 4*60*60;
   cal->scroll = 0;
   cal->repeat = 1;
   cal->today = today;

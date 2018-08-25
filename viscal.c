@@ -79,6 +79,7 @@ struct cal {
 	int nevents;
 	char chord;
 	int repeat;
+	int selected_event_ind;
 
 	enum cal_flags flags;
 	// TODO: make multiple target selection
@@ -124,6 +125,7 @@ calendar_create(struct cal *cal) {
   nowtm.tm_hour = 0;
   today = mktime(&nowtm);
 
+  cal->selected_event_ind = 0;
   cal->chord = 0;
   cal->gutter_height = 40;
   cal->minute_round = 30;
@@ -177,6 +179,70 @@ vevent_in_view(icalcomponent *vevent, time_t start, time_t end) {
 
 }
 
+static int sort_event(const void *a, const void*b) {
+	time_t st_a, st_b;
+	icaltimetype dtstart;
+	struct event *ea = (struct event *)a;
+	struct event *eb = (struct event *)b;
+
+	dtstart = icalcomponent_get_dtstart(ea->vevent);
+	st_a = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+
+	dtstart = icalcomponent_get_dtstart(eb->vevent);
+	st_b = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+
+	if (st_a < st_b)
+		return -1;
+	else if (st_a == st_b)
+		return 0;
+	else
+		return 1;
+}
+
+static time_t get_vevent_start(icalcomponent *vevent)
+{
+	icaltimetype dtstart = icalcomponent_get_dtstart(vevent);
+	return icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+}
+
+
+static int find_event_closest_to(struct cal *cal, time_t target)
+{
+	struct event *ev;
+	time_t evtime, diff, prev;
+
+	prev = target;
+
+	if (cal->nevents == 0)
+		return -1;
+	else if (cal->nevents == 1)
+		return 0;
+
+	for (int i = cal->nevents-1; i >= 0; i--) {
+		ev = &cal->events[i];
+		evtime = get_vevent_start(ev->vevent);
+
+		diff = abs(target - evtime);
+		printf("diff %d\n", diff);
+
+		if (diff > prev) {
+			printf("selecting %d\n", i);
+			return i+1;
+		}
+
+		prev = diff;
+	}
+
+	assert(!"shouldn't get here");
+}
+
+static void select_closest_to_now(struct cal *cal)
+{
+	time_t now = time(NULL);
+	cal->selected_event_ind = find_event_closest_to(cal, now);
+}
+
+
 static void
 events_for_view(struct cal *cal, time_t start, time_t end)
 {
@@ -186,6 +252,14 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 	struct ical *calendar;
 	icalcomponent *ical;
 
+	static int nah = 0;
+
+	// NOTE: remove me when we care about filtering
+	if (nah == 1)
+		return;
+
+	nah = 1;
+
 	for (i = 0; i < cal->ncalendars; ++i) {
 		calendar = &cal->calendars[i];
 		ical = calendar->calendar;
@@ -194,15 +268,19 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 		     vevent = icalcomponent_get_next_component(ical, ICAL_VEVENT_COMPONENT))
 		{
 
-			if (vevent_in_view(vevent, start, end)) {
-				event = &cal->events[count++];
-				/* printf("event in view %s\n", icalcomponent_get_summary(vevent)); */
-				event->vevent = vevent;
-				event->ical = calendar;
-			}
+			// NOTE: re-add me when we care about filtering
+			/* if (vevent_in_view(vevent, start, end)) { */
+			event = &cal->events[count++];
+			/* printf("event in view %s\n", icalcomponent_get_summary(vevent)); */
+			event->vevent = vevent;
+			event->ical = calendar;
+			/* } */
 		}
 		cal->nevents = count;
 	}
+
+	qsort(cal->events, cal->nevents, sizeof(*cal->events), sort_event);
+	select_closest_to_now(cal);
 }
 
 
@@ -455,8 +533,9 @@ event_hit (struct event *ev, double mx, double my) {
 }
 
 
-static struct event*
-events_hit (struct event *events, int nevents, double mx, double my) {
+static struct event* events_hit (struct event *events, int nevents,
+				 double mx, double my)
+{
 	for (int i = 0; i < nevents; ++i) {
 		if (event_hit(&events[i], mx, my))
 			return &events[i];
@@ -464,7 +543,8 @@ events_hit (struct event *events, int nevents, double mx, double my) {
 	return NULL;
 }
 
-static void zoom(struct cal *cal, double amt) {
+static void zoom(struct cal *cal, double amt)
+{
 	double newzoom = cal->zoom - amt * max(0.1, log(cal->zoom)) * 0.5;
 
 	if (newzoom < ZOOM_MIN) {
@@ -476,6 +556,26 @@ static void zoom(struct cal *cal, double amt) {
 
 	cal->zoom = newzoom;
 	cal->zoom_at = cal->my;
+}
+
+static struct event *get_selected_event(struct cal *cal)
+{
+	if (cal->nevents == 0 || cal->selected_event_ind == -1)
+		return NULL;
+	return &cal->events[cal->selected_event_ind];
+}
+
+
+static void select_down(struct cal *cal)
+{
+	cal->selected_event_ind =
+		min(cal->nevents - 1, cal->selected_event_ind + 1);
+}
+
+static void select_up(struct cal *cal)
+{
+	cal->selected_event_ind =
+		max(0, cal->selected_event_ind - 1);
 }
 
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
@@ -507,6 +607,17 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->scroll -= scroll_amt;
 			cal->repeat = 1;
 			break;
+		case 'j':
+			for (i=0; i < cal->repeat; i++)
+				select_down(cal);
+			cal->repeat = 1;
+			break;
+		case 'k':
+			for (i=0; i < cal->repeat; i++)
+				select_up(cal);
+			cal->repeat = 1;
+			break;
+
 		case 'z':
 			if (cal->chord == 0) {
 				cal->chord = 'z';
@@ -726,7 +837,7 @@ static void
 event_update (struct event *ev, struct cal *cal)
 {
 	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
-	icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
+	/* icaltimetype dtend = icalcomponent_get_dtend(ev->vevent); */
 	int isdate = dtstart.is_date;
 	double sx, sy, y, eheight, height, width;
 
@@ -867,6 +978,22 @@ format_time_duration(char *buf, int bufsize, int seconds)
 		snprintf(buf, bufsize, "%dh%dm", hours, minutes);
 }
 
+#define  Pr  .299
+#define  Pg  .587
+#define  Pb  .114
+static void saturate(union rgba *c, double change)
+{
+	double  P=sqrt(
+		(c->r)*(c->r)*Pr+
+		(c->g)*(c->g)*Pg+
+		(c->b)*(c->b)*Pb ) ;
+
+	c->r = P+((c->r)-P)*change;
+	c->g = P+((c->g)-P)*change;
+	c->b = P+((c->b)-P)*change;
+}
+
+
 static void
 draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	// double height = Math.fmin(, MIN_EVENT_HEIGHT);
@@ -882,7 +1009,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	/* double evwidth = ev->width; */
 	/* icaltimezone *tz = icalcomponent_get_timezone(ev->vevent, "UTC"); */
 	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
-	icaltimetype dtend = icalcomponent_get_dtend(ev->vevent);
+	/* icaltimetype dtend = icalcomponent_get_dtend(ev->vevent); */
 	int isdate = dtstart.is_date;
 
 	time_t st, et;
@@ -919,6 +1046,12 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	/* y -= EVMARGIN; */
 
 	cairo_move_to(cr, x, y);
+
+	// TODO: selected event rendering
+	if (get_selected_event(cal) == ev) {
+		saturate(&c, 0.5);
+	}
+
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
 	cairo_fill(cr);
@@ -1113,10 +1246,12 @@ int main(int argc, char *argv[])
 		// TODO: configure colors from cli?
 		if (ical != NULL) {
 			ical->color = defcol;
-			ical->color.r = rand_0to1();
-			ical->color.g = rand_0to1();
-			ical->color.b = rand_0to1();
+			ical->color.r = rand_0to1() > 0.5 ? 1.0 : 0;
+			ical->color.g = rand_0to1() > 0.5 ? 1.0 : 0;
+			ical->color.b = rand_0to1() > 0.5 ? 1.0 : 0;
 			ical->color.a = 1.0;
+
+			saturate(&ical->color, 0.4);
 		}
 		else {
 			printf("failed to load calendar\n");
@@ -1191,6 +1326,7 @@ int main(int argc, char *argv[])
 	gtk_window_set_default_size(GTK_WINDOW(window), 400, 800);
 	gtk_window_set_title(GTK_WINDOW(window), "viscal");
 
+	// TODO: proper css/gtk styling?
 	gtk_widget_modify_bg(window, GTK_STATE_NORMAL, &color);
 	gtk_widget_show_all(window);
 

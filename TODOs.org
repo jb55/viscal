@@ -16,9 +16,11 @@ Options:
 
 - n/p ?
 ** TODO Test writing cal to disk
+
 * Keys
 
 ** TODO O       open_up
+** TODO i       create_event
 ** TODO t       now
 ** TODO J       join two events?
 ** TODO dd      delete event, pushing lower events up to fill the hole

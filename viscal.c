@@ -635,8 +635,6 @@ static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 
 static void open_below(struct cal *cal)
 {
-	// TODO: create 30 minute/configurable event if there's space
-
 	time_t st, et;
 	int ind;
 	time_t push_to;
@@ -664,7 +662,9 @@ static void open_below(struct cal *cal)
 
 	create_event(cal, et, push_to, ev->ical->calendar);
 
-	select_down(cal, 1);
+	// XXX: sooo the event doesn't technically exist yet, so this is potentially
+	// a buffer busting operation...  keep an eye out for this one :|
+	cal->selected_event_ind++;
 
 }
 

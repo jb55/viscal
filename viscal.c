@@ -171,15 +171,15 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 	*et = icaltime_as_timet_with_zone(dtend, dtend.zone);
 }
 
-static int
-vevent_in_span(icalcomponent *vevent, time_t start, time_t end) {
-	/* printf("vevent_in_span span.start %d span.end %d start %d end %d\n", */
-	/* 	span.start, span.end, start, end); */
-	time_t st, et;
-	vevent_span_timet(vevent, &st, &et);
-	return span_overlaps(st, et, start, end);
+/* static int */
+/* vevent_in_span(icalcomponent *vevent, time_t start, time_t end) { */
+/* 	/\* printf("vevent_in_span span.start %d span.end %d start %d end %d\n", *\/ */
+/* 	/\* 	span.start, span.end, start, end); *\/ */
+/* 	time_t st, et; */
+/* 	vevent_span_timet(vevent, &st, &et); */
+/* 	return span_overlaps(st, et, start, end); */
 
-}
+/* } */
 
 static int sort_event(const void *a, const void*b) {
 	time_t st_a, st_b;
@@ -283,17 +283,17 @@ on_change_view(struct cal *cal) {
 }
 
 
-static void
-calendar_print_state(struct cal *cal) {
-	static int c = 0;
-	printf("%f %d %d %s %s %d\r",
-	       cal->zoom, cal->mx, cal->my,
-	       (cal->flags & CAL_DRAGGING) != 0 ? "D " : "  ",
-	       (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  ",
-	       c++
-		);
-	fflush(stdout);
-}
+/* static void */
+/* calendar_print_state(struct cal *cal) { */
+/* 	static int c = 0; */
+/* 	printf("%f %d %d %s %s %d\r", */
+/* 	       cal->zoom, cal->mx, cal->my, */
+/* 	       (cal->flags & CAL_DRAGGING) != 0 ? "D " : "  ", */
+/* 	       (cal->flags & CAL_MDOWN)    != 0 ? "M " : "  ", */
+/* 	       c++ */
+/* 		); */
+/* 	fflush(stdout); */
+/* } */
 
 static void
 calendar_refresh_events(struct cal *cal) {
@@ -644,11 +644,9 @@ static void open_below(struct cal *cal)
 	// TODO: create 30 minute/configurable event if there's space
 
 	time_t st, et;
-	int ind, last_ind = -1;
+	int ind;
 	time_t push_to;
 	struct event *ev;
-	icaltimetype dtstart, dtend;
-	icalcomponent *vevent;
 
 	ev = get_selected_event(cal);
 
@@ -672,8 +670,6 @@ static void open_below(struct cal *cal)
 		create_event(cal, et, push_to, ev->ical->calendar);
 
 		select_down(cal, 1);
-
-		last_ind = ind;
 	}
 
 

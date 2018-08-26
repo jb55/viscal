@@ -658,14 +658,13 @@ static void open_below(struct cal *cal)
 
 		if (ind == -1)
 			break;
-
-		push_down(cal, cal->selected_event_ind, ind, push_to);
-
-		create_event(cal, et, push_to, ev->ical->calendar);
-
-		select_down(cal, 1);
+		else
+			push_down(cal, cal->selected_event_ind, ind, push_to);
 	}
 
+	create_event(cal, et, push_to, ev->ical->calendar);
+
+	select_down(cal, 1);
 
 }
 

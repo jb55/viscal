@@ -468,12 +468,6 @@ create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
 
   vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
-  char buf[32];
-  format_locale_timet(buf, 32, start);
-  printf("creating event at %s", buf);
-  format_locale_timet(buf, 32, end);
-  printf(" to %s\n", buf);
-
   icalcomponent_set_summary(vevent, "New Event");
   icalcomponent_set_dtstart(vevent, dtstart);
   icalcomponent_set_dtend(vevent, dtend);

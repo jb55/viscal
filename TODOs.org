@@ -2,9 +2,28 @@
 
 * Current 
 
+** TODO yank
+** TODO paste
+** TODO undo stack
+** TODO Movement should scroll the screen
+** TODO j/k should highlight empty slots as well
+** TODO Figure out keys for event-movement
+
+Right now it's j/k but that should probably be reserved for
+moving around in general.
+
+Options:
+
+- n/p ?
+
+
 * Keys
 
-** TODO t -> now
+** TODO O       open_up
+** TODO t       now
+** TODO J       join two events?
+** TODO dd      delete event, pushing lower events up to fill the hole
+** TODO x,D?    delete event
 
 * UI
 

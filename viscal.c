@@ -21,6 +21,7 @@
     __typeof__ (b) _b = (b);                    \
     _a < _b ? _a : _b; })
 
+// TODO: heap-realloc events array
 #define MAX_EVENTS 1024
 
 static const double BGCOLOR = 0.35;
@@ -89,6 +90,7 @@ struct cal {
 	int x, y, mx, my;
 	int gutter_height;
 	double zoom, zoom_at;
+	icaltimezone *tz;
 
 	time_t today, start_at, scroll;
 
@@ -102,7 +104,7 @@ struct extra_data {
 
 static GdkCursor *cursor_default;
 static GdkCursor *cursor_pointer;
-static icaltimezone *g_timezone;
+
 static int g_lmargin = 18;
 static int g_margin_time_w = 0;
 static int margin_calculated = 0;
@@ -160,7 +162,7 @@ span_overlaps(time_t start1, time_t end1, time_t start2, time_t end2) {
 }
 
 
-static void event_local_span(icalcomponent *vevent, time_t *st, time_t *et)
+static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 {
 	icaltimetype dtstart = icalcomponent_get_dtstart(vevent);
 	icaltimetype dtend = icalcomponent_get_dtend(vevent);
@@ -170,11 +172,11 @@ static void event_local_span(icalcomponent *vevent, time_t *st, time_t *et)
 }
 
 static int
-vevent_in_view(icalcomponent *vevent, time_t start, time_t end) {
-	/* printf("vevent_in_view span.start %d span.end %d start %d end %d\n", */
+vevent_in_span(icalcomponent *vevent, time_t start, time_t end) {
+	/* printf("vevent_in_span span.start %d span.end %d start %d end %d\n", */
 	/* 	span.start, span.end, start, end); */
 	time_t st, et;
-	event_local_span(vevent, &st, &et);
+	vevent_span_timet(vevent, &st, &et);
 	return span_overlaps(st, et, start, end);
 
 }
@@ -223,7 +225,6 @@ static int find_event_closest_to(struct cal *cal, time_t target)
 		evtime = get_vevent_start(ev->vevent);
 
 		diff = abs(target - evtime);
-		printf("diff %d\n", diff);
 
 		if (diff > prev) {
 			printf("selecting %d\n", i);
@@ -246,41 +247,33 @@ static void select_closest_to_now(struct cal *cal)
 static void
 events_for_view(struct cal *cal, time_t start, time_t end)
 {
-	int i, count = 0;
+	int i;
 	struct event *event;
 	icalcomponent *vevent;
 	struct ical *calendar;
 	icalcomponent *ical;
 
-	static int nah = 0;
-
-	// NOTE: remove me when we care about filtering
-	if (nah == 1)
-		return;
-
-	nah = 1;
+	cal->nevents = 0;
 
 	for (i = 0; i < cal->ncalendars; ++i) {
 		calendar = &cal->calendars[i];
 		ical = calendar->calendar;
 		for (vevent = icalcomponent_get_first_component(ical, ICAL_VEVENT_COMPONENT);
-		     vevent != NULL && count < MAX_EVENTS;
+		     vevent != NULL && cal->nevents < MAX_EVENTS;
 		     vevent = icalcomponent_get_next_component(ical, ICAL_VEVENT_COMPONENT))
 		{
 
 			// NOTE: re-add me when we care about filtering
-			/* if (vevent_in_view(vevent, start, end)) { */
-			event = &cal->events[count++];
+			/* if (vevent_in_span(vevent, start, end)) { */
+			event = &cal->events[cal->nevents++];
 			/* printf("event in view %s\n", icalcomponent_get_summary(vevent)); */
 			event->vevent = vevent;
 			event->ical = calendar;
 			/* } */
 		}
-		cal->nevents = count;
 	}
 
 	qsort(cal->events, cal->nevents, sizeof(*cal->events), sort_event);
-	select_closest_to_now(cal);
 }
 
 
@@ -315,10 +308,8 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
 
-	if (cal)
-		calendar_refresh_events(cal);
-	else
-		gtk_widget_queue_draw(cal->widget);
+		/* calendar_refresh_events(cal); */
+	gtk_widget_queue_draw(cal->widget);
 	/* calendar_print_state(cal); */
 
 	return 1;
@@ -431,33 +422,6 @@ event_click(struct cal *cal, struct event *event, int mx, int my) {
 	calendar_loc_to_time(cal, my);
 }
 
-
-static icalcomponent *
-event_create(time_t time) {
-  icalcomponent *vevent;
-  vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
-  return vevent;
-}
-
-static icalcomponent *
-calendar_def_cal(struct cal *cal) {
-  // TODO: configurable default calendar
-  if (cal->ncalendars > 0)
-    return cal->calendars[0].calendar;
-  return NULL;
-}
-
-static time_t
-closest_timeblock(struct cal *cal, int y) {
-	time_t st;
-	struct tm lt;
-	st = calendar_loc_to_time(cal, y);
-	lt = *localtime(&st);
-	lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
-	lt.tm_sec = 0; // removes jitter
-	return mktime(&lt);
-}
-
 // TODO: this should handle zh_CN and others as well
 void time_remove_seconds(char *time, int n) {
 	int len = strlen(time);
@@ -480,45 +444,82 @@ void time_remove_seconds(char *time, int n) {
 }
 
 
-
-static void
-format_locale_time(char *buffer, int bsize, struct tm *tm) {
+static char *format_locale_time(char *buffer, int bsize, struct tm *tm) {
 	strftime(buffer, bsize, "%X", tm);
 	time_remove_seconds(buffer, 2);
+	return buffer;
 }
 
 
-
-static void
-format_locale_timet(char *buffer, int bsize, time_t time) {
+static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 	struct tm lt;
 	lt = *localtime(&time);
 	format_locale_time(buffer, bsize, &lt);
+	return buffer;
 }
+
+
+
+static icalcomponent *
+create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
+  icalcomponent *vevent;
+  icaltimetype dtstart = icaltime_from_timet(start, 0);
+  icaltimetype dtend = icaltime_from_timet(end, 0);
+
+  vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
+
+  char buf[32];
+  format_locale_timet(buf, 32, start);
+  printf("creating event at %s", buf);
+  format_locale_timet(buf, 32, end);
+  printf(" to %s\n", buf);
+
+  icalcomponent_set_summary(vevent, "New Event");
+  icalcomponent_set_dtstart(vevent, dtstart);
+  icalcomponent_set_dtend(vevent, dtend);
+  icalcomponent_add_component(ical, vevent);
+
+  calendar_refresh_events(cal);
+
+  return vevent;
+}
+
+static icalcomponent *
+calendar_def_cal(struct cal *cal) {
+  // TODO: configurable default calendar
+  if (cal->ncalendars > 0)
+    return cal->calendars[0].calendar;
+  return NULL;
+}
+
+static time_t
+closest_timeblock(struct cal *cal, int y) {
+	time_t st;
+	struct tm lt;
+	st = calendar_loc_to_time(cal, y);
+	lt = *localtime(&st);
+	lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
+	lt.tm_sec = 0; // removes jitter
+	return mktime(&lt);
+}
+
 
 
 static void
 calendar_view_clicked(struct cal *cal, int mx, int my) {
-  icalcomponent *vevent;
   time_t closest;
   /* int y; */
   char buf[32];
 
   closest = closest_timeblock(cal, my);
 
-  icaltimetype dtstart = icaltime_from_timet(closest, 0);
-  icaltimetype dtend = icaltime_from_timet(closest + cal->minute_round * 60, 0);
 
   format_locale_timet(buf, length(buf), closest);
   printf("(%d,%d) clicked @%s\n", mx, my, buf);
-  vevent = event_create(closest);
-  icalcomponent_set_summary(vevent, "New Event");
+  create_event(cal, closest, closest + cal->minute_round * 60,
+	       calendar_def_cal(cal));
   // TODO: configurable default duration
   /* icalcomponent_set_duration(vevent, duration); */
-  icalcomponent_set_dtstart(vevent, dtstart);
-  icalcomponent_set_dtend(vevent, dtend);
-  icalcomponent_add_component(calendar_def_cal(cal), vevent);
-  calendar_refresh_events(cal);
 
   /* y = calendar_time_to_loc(cal, closest) * cal->height; */
 }
@@ -565,17 +566,117 @@ static struct event *get_selected_event(struct cal *cal)
 	return &cal->events[cal->selected_event_ind];
 }
 
+#define clamp(val, low, high) (val < low ? low : (val > high ? high : val))
 
-static void select_down(struct cal *cal)
+static inline int relative_selection(struct cal *cal, int rel)
 {
-	cal->selected_event_ind =
-		min(cal->nevents - 1, cal->selected_event_ind + 1);
+	return clamp(cal->selected_event_ind + rel, 0, cal->nevents - 1);
 }
 
-static void select_up(struct cal *cal)
+static void select_down(struct cal *cal, int repeat)
 {
-	cal->selected_event_ind =
-		max(0, cal->selected_event_ind - 1);
+	cal->selected_event_ind = relative_selection(cal, repeat);
+}
+
+static void select_up(struct cal *cal, int repeat)
+{
+	cal->selected_event_ind = relative_selection(cal, -repeat);
+}
+
+static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
+		      time_t min_start, time_t max_end)
+{
+	time_t st, et;
+	struct event *ev;
+
+	for (int i=index_hint; i < cal->nevents; i++) {
+		ev = &cal->events[i];
+
+		vevent_span_timet(ev->vevent, &st, &et);
+		
+		if ((min_start != 0 && st < min_start) ||
+		    (max_end   != 0 && et > max_end))
+			continue;
+		else if (span_overlaps(st, et, start, end))
+			return i;
+	}
+
+	return -1;
+}
+
+static void push_down(struct cal *cal, int from, int ind, time_t push_to)
+{
+	icaltimetype dtstart, dtend;
+	time_t f_st, from_event_et, st, et, new_et;
+	struct event *ev, *fromev;
+
+	fromev = &cal->events[from];
+	vevent_span_timet(fromev->vevent, &f_st, &from_event_et);
+
+	// why would we want to push to before the from end time?
+	assert(push_to >= from_event_et);
+
+	ev = &cal->events[ind];
+
+	vevent_span_timet(ev->vevent, &st, &et);
+
+	if (st >= push_to)
+		return;
+
+	new_et = et + (push_to - st);
+
+	dtstart = icaltime_from_timet(push_to, 0);
+	dtend   = icaltime_from_timet(new_et, 0);
+
+	// TODO: undo
+	icalcomponent_set_dtstart(ev->vevent, dtstart);
+	icalcomponent_set_dtend(ev->vevent, dtend);
+
+	if (ind + 1 > cal->nevents - 1)
+		return;
+
+	// push rest
+	push_down(cal, ind, ind+1, new_et);
+}
+
+static void open_below(struct cal *cal)
+{
+	// TODO: create 30 minute/configurable event if there's space
+
+	time_t st, et;
+	int ind, last_ind = -1;
+	time_t push_to;
+	struct event *ev;
+	icaltimetype dtstart, dtend;
+	icalcomponent *vevent;
+
+	ev = get_selected_event(cal);
+
+	if (ev == NULL)
+		return;
+
+	vevent_span_timet(ev->vevent, &st, &et);
+
+	push_to = et + cal->minute_round * 60;
+
+	// push down all nearby events
+	// TODO: filter on visible calendars
+	for (ind = cal->selected_event_ind + 1; ind != -1; ind++) {
+		ind = query_span(cal, ind, et, push_to, et, 0);
+
+		if (ind == -1)
+			break;
+
+		push_down(cal, cal->selected_event_ind, ind, push_to);
+
+		create_event(cal, et, push_to, ev->ical->calendar);
+
+		select_down(cal, 1);
+
+		last_ind = ind;
+	}
+
+
 }
 
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
@@ -603,18 +704,19 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->scroll += scroll_amt;
 			cal->repeat = 1;
 			break;
+
 		case 'u':
 			cal->scroll -= scroll_amt;
 			cal->repeat = 1;
 			break;
+
 		case 'j':
-			for (i=0; i < cal->repeat; i++)
-				select_down(cal);
+			select_down(cal, cal->repeat);
 			cal->repeat = 1;
 			break;
+
 		case 'k':
-			for (i=0; i < cal->repeat; i++)
-				select_up(cal);
+			select_up(cal, cal->repeat);
 			cal->repeat = 1;
 			break;
 
@@ -643,6 +745,8 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 				cal->repeat = 1;
 				cal->chord = 0;
 			}
+			else
+				open_below(cal);
 			break;
 		}
 		break;
@@ -857,7 +961,7 @@ event_update (struct event *ev, struct cal *cal)
 	else {
 		// convert to local time
 		time_t st, et;
-		event_local_span(ev->vevent, &st, &et);
+		vevent_span_timet(ev->vevent, &st, &et);
 
 		double sloc = calendar_time_to_loc(cal, st);
 		double eloc = calendar_time_to_loc(cal, et);
@@ -1013,7 +1117,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	int isdate = dtstart.is_date;
 
 	time_t st, et;
-	event_local_span(ev->vevent, &st, &et);
+	vevent_span_timet(ev->vevent, &st, &et);
 
 	double x = ev->x;
 	// TODO: date-event stacking
@@ -1258,10 +1362,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
+
 	on_change_view(&cal);
+	select_closest_to_now(&cal);
 
 	// TODO: get system timezone
-	g_timezone = icaltimezone_get_builtin_timezone("America/Vancouver");
+	cal.tz = icaltimezone_get_builtin_timezone("America/Vancouver");
 
 	g_text_color.r = text_col;
 	g_text_color.g = text_col;

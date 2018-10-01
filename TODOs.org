@@ -2,11 +2,20 @@
 
 * Current 
 
+
+** TODO j/k should highlight empty slots as well
+:LOGBOOK:
+CLOCK: [2018-09-28 Fri 16:33]--[2018-09-28 Fri 19:38] =>  3:05
+:END:
+
+** TODO Open from caldav
+
+New events -> PUT request
+
 ** TODO yank
 ** TODO paste
 ** TODO undo stack
 ** TODO Movement should scroll the screen
-** TODO j/k should highlight empty slots as well
 ** TODO Figure out keys for event-movement
 
 Right now it's j/k but that should probably be reserved for
@@ -16,6 +25,14 @@ Options:
 
 - n/p ?
 ** TODO Test writing cal to disk
+
+
+* CALDAV
+
+** TODO Open calendar from caldav 
+** TODO Calendar color 
+** TODO PUT requests when adding new events
+- event log for this would be a bonus
 
 * Keys
 

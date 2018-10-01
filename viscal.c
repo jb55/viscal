@@ -593,6 +593,13 @@ static void move_down(struct cal *cal, int repeat)
 	cal->current += cal->timeblock_size * 60;
 }
 
+static void move_now(struct cal *cal)
+{
+	time_t now = time(NULL);
+	cal->current =
+		closest_timeblock_for_timet(now, cal->timeblock_size);
+}
+
 static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 		      time_t min_start, time_t max_end)
 {
@@ -708,6 +715,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		case 'd':
 			cal->scroll += scroll_amt;
 			cal->repeat = 1;
+			break;
+
+		case 't':
+			move_now(cal);
 			break;
 
 		case 'u':

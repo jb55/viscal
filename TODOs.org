@@ -2,7 +2,10 @@
 
 * Current 
 
-** TODO adjust time block size
+** TODO unify open_below and insert_event
+
+They do slightly different things at the moment
+
 ** TODO Open from caldav
 
 New events -> PUT request
@@ -20,6 +23,7 @@ Options:
 
 - n/p ?
 ** TODO Test writing cal to disk
+** TODO adjust time block size
 
 
 * CALDAV

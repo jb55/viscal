@@ -82,6 +82,7 @@ struct cal {
 	int repeat;
 
 	int selected_event_ind;
+	int selected_calendar_ind;
 
 	enum cal_flags flags;
 	// TODO: make multiple target selection
@@ -129,6 +130,7 @@ calendar_create(struct cal *cal) {
   nowtm.tm_hour = 0;
   today = mktime(&nowtm);
 
+  cal->selected_calendar_ind = 0;
   cal->selected_event_ind = 0;
   cal->chord = 0;
   cal->gutter_height = 40;
@@ -145,6 +147,20 @@ calendar_create(struct cal *cal) {
   cal->zoom = 2.0;
 }
 
+static void set_current_calendar(struct cal *cal, struct ical *ical)
+{
+	for (int i = 0; i < cal->ncalendars; i++) {
+		if (&cal->calendars[i] == ical)
+			cal->selected_calendar_ind = i;
+	}
+}	
+
+static struct ical *current_calendar(struct cal *cal) {
+	if (cal->ncalendars == 0)
+		return NULL;
+
+	return &cal->calendars[cal->selected_calendar_ind];
+}
 
 static time_t calendar_view_end(struct cal *cal)
 {
@@ -465,20 +481,20 @@ static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 
 static icalcomponent *
 create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
-  icalcomponent *vevent;
-  icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
-  icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, NULL);
+	icalcomponent *vevent;
+	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
+	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, NULL);
 
-  vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
+	vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
-  icalcomponent_set_summary(vevent, "New Event");
-  icalcomponent_set_dtstart(vevent, dtstart);
-  icalcomponent_set_dtend(vevent, dtend);
-  icalcomponent_add_component(ical, vevent);
+	icalcomponent_set_summary(vevent, "New Event");
+	icalcomponent_set_dtstart(vevent, dtstart);
+	icalcomponent_set_dtend(vevent, dtend);
+	icalcomponent_add_component(ical, vevent);
 
-  calendar_refresh_events(cal);
+	calendar_refresh_events(cal);
 
-  return vevent;
+	return vevent;
 }
 
 static icalcomponent *
@@ -600,6 +616,19 @@ static void move_now(struct cal *cal)
 		closest_timeblock_for_timet(now, cal->timeblock_size);
 }
 
+static void insert_event(struct cal *cal)
+{
+	// we should eventually always have a calendar
+	// at least a temporary one
+	if (cal->ncalendars == 0)
+		return;
+
+	time_t st = cal->current;
+	time_t et = cal->current + cal->timeblock_size * 60;
+
+	create_event(cal, st, et, current_calendar(cal)->calendar);
+}
+
 static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 		      time_t min_start, time_t max_end)
 {
@@ -683,6 +712,7 @@ static void open_below(struct cal *cal)
 			push_down(cal, cal->selected_event_ind, ind, push_to);
 	}
 
+	set_current_calendar(cal, ev->ical);
 	create_event(cal, et, push_to, ev->ical->calendar);
 
 	// XXX: sooo the event doesn't technically exist yet, so this is potentially
@@ -712,6 +742,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		}
 
 		switch (key) {
+
 		case 'd':
 			cal->scroll += scroll_amt;
 			cal->repeat = 1;
@@ -764,12 +795,15 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			}
 			break;
 		case 'i':
-			if (cal->chord == 'z') {
+			if (cal->chord == 0) {
+				insert_event(cal);
+			}
+			else if (cal->chord == 'z') {
 				for (i=0; i < cal->repeat; i++)
 					zoom(cal, -zoom_amt);
-				cal->repeat = 1;
 				cal->chord = 0;
 			}
+			cal->repeat = 1;
 			break;
 		case 'o':
 			if (cal->chord == 'z') {

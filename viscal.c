@@ -80,18 +80,20 @@ struct cal {
 	int nevents;
 	char chord;
 	int repeat;
+
 	int selected_event_ind;
 
 	enum cal_flags flags;
 	// TODO: make multiple target selection
 	struct event *target;
-	int minute_round;
+	int timeblock_size;
 	int refresh_events;
 	int x, y, mx, my;
 	int gutter_height;
 	double zoom, zoom_at;
 	icaltimezone *tz;
 
+	time_t current; // current highlighted position
 	time_t today, start_at, scroll;
 
 	int height, width;
@@ -130,11 +132,12 @@ calendar_create(struct cal *cal) {
   cal->selected_event_ind = 0;
   cal->chord = 0;
   cal->gutter_height = 40;
-  cal->minute_round = 30;
+  cal->timeblock_size = 30;
   cal->ncalendars = 0;
   cal->nevents = 0;
   cal->start_at = nowh - today - 4*60*60;
   cal->scroll = 0;
+  cal->current = nowh;
   cal->repeat = 1;
   cal->today = today;
   cal->x = g_lmargin;
@@ -358,7 +361,7 @@ calendar_load_ical(struct cal *cal, char *path) {
 /* event_set_start(struct event *ev, time_t time, const icaltimezone *zone) { */
 /*   if (zone == NULL) */
 /*     zone = g_timezone; */
-/*   icaltimetype ictime = icaltime_from_timet_with_zone(time, 1, zone); */
+/*   icaltimetype ictime = icaltime_from_timet_with_zone_with_zone(time, 1, zone); */
 /*   icalcomponent_set_dtstart(ev->vevent, ictime); */
 /* } */
 
@@ -366,7 +369,7 @@ calendar_load_ical(struct cal *cal, char *path) {
 /* event_set_end(struct event *ev, time_t time, const icaltimezone *zone) { */
 /*   if (zone == NULL) */
 /*     zone = g_timezone; */
-/*   icaltimetype ictime = icaltime_from_timet_with_zone(time, 1, zone); */
+/*   icaltimetype ictime = icaltime_from_timet_with_zone_with_zone(time, 1, zone); */
 /*   icalcomponent_set_dtend(ev->vevent, ictime); */
 /* } */
 
@@ -389,12 +392,12 @@ calendar_drop(struct cal *cal, double mx, double my) {
 	// TODO: convert timezone on drag?
 
 	icaltimetype startt =
-		icaltime_from_timet(ev->drag_time, 0);
+		icaltime_from_timet_with_zone(ev->drag_time, 0, NULL);
 
 	icalcomponent_set_dtstart(ev->vevent, startt);
 
 	icaltimetype endt =
-	icaltime_from_timet(ev->drag_time + len, 0);
+		icaltime_from_timet_with_zone(ev->drag_time + len, 0, NULL);
 
 	icalcomponent_set_dtend(ev->vevent, endt);
 }
@@ -463,8 +466,8 @@ static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 static icalcomponent *
 create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
   icalcomponent *vevent;
-  icaltimetype dtstart = icaltime_from_timet(start, 0);
-  icaltimetype dtend = icaltime_from_timet(end, 0);
+  icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
+  icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, NULL);
 
   vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
@@ -486,15 +489,18 @@ calendar_def_cal(struct cal *cal) {
   return NULL;
 }
 
-static time_t
-closest_timeblock(struct cal *cal, int y) {
-	time_t st;
+static time_t closest_timeblock_for_timet(time_t st, int timeblock_size) {
 	struct tm lt;
-	st = calendar_loc_to_time(cal, y);
 	lt = *localtime(&st);
-	lt.tm_min = round(lt.tm_min / cal->minute_round) * cal->minute_round;
+	lt.tm_min = round(lt.tm_min / timeblock_size) * timeblock_size;
 	lt.tm_sec = 0; // removes jitter
 	return mktime(&lt);
+}
+
+static time_t
+closest_timeblock(struct cal *cal, int y) {
+	time_t st = calendar_loc_to_time(cal, y);
+	return closest_timeblock_for_timet(st, cal->timeblock_size);
 }
 
 
@@ -510,7 +516,7 @@ calendar_view_clicked(struct cal *cal, int mx, int my) {
 
   format_locale_timet(buf, length(buf), closest);
   printf("(%d,%d) clicked @%s\n", mx, my, buf);
-  create_event(cal, closest, closest + cal->minute_round * 60,
+  create_event(cal, closest, closest + cal->timeblock_size * 60,
 	       calendar_def_cal(cal));
   // TODO: configurable default duration
   /* icalcomponent_set_duration(vevent, duration); */
@@ -577,6 +583,16 @@ static void select_up(struct cal *cal, int repeat)
 	cal->selected_event_ind = relative_selection(cal, -repeat);
 }
 
+static void move_up(struct cal *cal, int repeat)
+{
+	cal->current -= cal->timeblock_size * 60;
+}
+
+static void move_down(struct cal *cal, int repeat)
+{
+	cal->current += cal->timeblock_size * 60;
+}
+
 static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 		      time_t min_start, time_t max_end)
 {
@@ -619,8 +635,8 @@ static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 
 	new_et = et + (push_to - st);
 
-	dtstart = icaltime_from_timet(push_to, 0);
-	dtend   = icaltime_from_timet(new_et, 0);
+	dtstart = icaltime_from_timet_with_zone(push_to, 0, NULL);
+	dtend   = icaltime_from_timet_with_zone(new_et, 0, NULL);
 
 	// TODO: undo
 	icalcomponent_set_dtstart(ev->vevent, dtstart);
@@ -647,7 +663,7 @@ static void open_below(struct cal *cal)
 
 	vevent_span_timet(ev->vevent, &st, &et);
 
-	push_to = et + cal->minute_round * 60;
+	push_to = et + cal->timeblock_size * 60;
 
 	// push down all nearby events
 	// TODO: filter on visible calendars
@@ -699,13 +715,30 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->repeat = 1;
 			break;
 
+		case 'g':
+			if (cal->chord == 0)
+				cal->chord = 'g';
+			break;
+
 		case 'j':
-			select_down(cal, cal->repeat);
+			if (cal->chord == 0) {
+				move_down(cal, cal->repeat);
+			}
+			else if (cal->chord == 'g') {
+				select_down(cal, cal->repeat);
+				cal->chord = 0;
+			}
 			cal->repeat = 1;
 			break;
 
 		case 'k':
-			select_up(cal, cal->repeat);
+			if (cal->chord == 0) {
+				move_up(cal, cal->repeat);
+			}
+			else if (cal->chord == 'g') {
+				select_up(cal, cal->repeat);
+				cal->chord = 0;
+			}
 			cal->repeat = 1;
 			break;
 
@@ -926,6 +959,12 @@ calendar_time_to_loc(struct cal *cal, time_t time) {
 
 
 
+static double calendar_time_to_loc_absolute(struct cal *cal, time_t time) {
+	return calendar_time_to_loc(cal, time) * cal->height + cal->y;
+}
+
+
+
 static void
 event_update (struct event *ev, struct cal *cal)
 {
@@ -1132,7 +1171,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 		/* x += ev->dragx; */
 		y += ev->dragy;
 		st = closest_timeblock(cal, y);
-		y = cal->y + calendar_time_to_loc(cal, st) * cal->height;
+		y = calendar_time_to_loc_absolute(cal, st);
 		cal->target->drag_time = st;
 	}
 
@@ -1216,8 +1255,7 @@ draw_line (cairo_t *cr, double x, double y, double w) {
 
 static void
 draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
-	double loc = calendar_time_to_loc(cal, time);
-	double y = (loc * cal->height) + cal->y;
+	double y = calendar_time_to_loc_absolute(cal, time);
 	int w = cal->width;
 
 	cairo_set_line_width(cr, 1.0);
@@ -1233,6 +1271,21 @@ draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
 	/* cairo_set_source_rgb (cr, 0, 0, 0); */
 	/* draw_line(cr, cal->x, y + 1, w); */
 	/* cairo_stroke(cr); */
+}
+
+static void
+draw_selection (cairo_t *cr, struct cal *cal)
+{
+	double sx = cal->x;
+	double sy = calendar_time_to_loc_absolute(cal, cal->current);
+	time_t et = cal->current + cal->timeblock_size * 60;
+	double height = calendar_time_to_loc_absolute(cal, et) - sy;
+
+	cairo_move_to(cr, sx, sy);
+
+	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.2);
+	draw_rectangle(cr, cal->width, height);
+	cairo_fill(cr);
 }
 
 static int
@@ -1251,6 +1304,8 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 		struct event *ev = &cal->events[i];
 		draw_event(cr, cal, ev);
 	}
+
+	draw_selection(cr, cal);
 
 	draw_time_line(cr, cal, time(&now));
 

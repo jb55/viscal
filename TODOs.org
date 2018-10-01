@@ -2,12 +2,19 @@
 
 * Current 
 
+** TODO t       now
+
+Snap current position to closest floor(timeblock)
 
 ** TODO j/k should highlight empty slots as well
 :LOGBOOK:
-CLOCK: [2018-09-28 Fri 16:33]--[2018-09-28 Fri 19:38] =>  3:05
+CLOCK: [2018-10-01 Mon 11:11]--[2018-10-01 Mon 13:00] =>  1:49
 :END:
 
+- current time position variable
+- highlight is current time + default time block size
+
+** TODO adjust time block size
 ** TODO Open from caldav
 
 New events -> PUT request
@@ -38,7 +45,6 @@ Options:
 
 ** TODO O       open_up
 ** TODO i       create_event
-** TODO t       now
 ** TODO J       join two events?
 ** TODO dd      delete event, pushing lower events up to fill the hole
 ** TODO x,D?    delete event

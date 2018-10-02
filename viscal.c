@@ -688,8 +688,6 @@ static void move_relative(struct cal *cal, int rel)
 		cal->current = st;
 		const char * const summary =
 			icalcomponent_get_summary(ev->vevent);
-
-		printf("hit %d\n", hit);
 	}
 
 quit:

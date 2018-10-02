@@ -132,6 +132,7 @@ calendar_create(struct cal *cal) {
 
   cal->selected_calendar_ind = 0;
   cal->selected_event_ind = -1;
+  cal->target = NULL;
   cal->chord = 0;
   cal->gutter_height = 40;
   cal->timeblock_size = 30;

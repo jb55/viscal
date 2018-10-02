@@ -295,9 +295,9 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 		}
 	}
 
-	printf("quicksorting\n");
 	qsort(cal->events, cal->nevents, sizeof(*cal->events), sort_event);
 
+	// useful for selecting a new event after insertion
 	if (cal->select_after_sort) {
 		for (i = 0; i < cal->nevents; i++) {
 			if (cal->events[i].vevent == cal->select_after_sort) {
@@ -307,6 +307,7 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 		}
 	}
 
+	cal->select_after_sort = NULL;
 }
 
 
@@ -441,18 +442,25 @@ location_to_time(time_t start, time_t end, double loc) {
 
 
 static time_t
-calendar_loc_to_time(struct cal *cal, double y) {
+calendar_pos_to_time(struct cal *cal, double y) {
 	// TODO: this is wrong wrt. zoom
 	return location_to_time(calendar_view_start(cal),
 				calendar_view_end(cal),
 				y/((double)cal->height * cal->zoom));
 }
 
+static time_t
+calendar_loc_to_time(struct cal *cal, double y) {
+	return location_to_time(calendar_view_start(cal),
+				calendar_view_end(cal),
+				y/cal->zoom);
+}
+
 static void
 event_click(struct cal *cal, struct event *event, int mx, int my) {
 	printf("clicked %s\n", icalcomponent_get_summary(event->vevent));
 
-	calendar_loc_to_time(cal, my);
+	calendar_pos_to_time(cal, my);
 }
 
 // TODO: this should handle zh_CN and others as well
@@ -538,7 +546,7 @@ static time_t closest_timeblock_for_timet(time_t st, int timeblock_size) {
 
 static time_t
 closest_timeblock(struct cal *cal, int y) {
-	time_t st = calendar_loc_to_time(cal, y);
+	time_t st = calendar_pos_to_time(cal, y);
 	return closest_timeblock_for_timet(st, cal->timeblock_size);
 }
 
@@ -652,7 +660,6 @@ static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 {
 	time_t st, et;
 	struct event *ev;
-	int ret;
 
 	for (int i=index_hint; i < cal->nevents; i++) {
 		ev = &cal->events[i];
@@ -703,16 +710,10 @@ static void move_relative(struct cal *cal, int rel)
  
 	if ((hit = query_span(cal, 0, st, et, 0, 0)) != -1) {
 		struct event *ev = &cal->events[hit];
-		icaltimetype dtstart =
-			icalcomponent_get_dtstart(ev->vevent);
-			
 		vevent_span_timet(ev->vevent, &st, &et);
 		cal->current = st;
-		const char * const summary =
-			icalcomponent_get_summary(ev->vevent);
 	}
 
-quit:
 	cal->selected_event_ind = hit;
 }
 
@@ -724,6 +725,31 @@ static void move_up(struct cal *cal, int repeat)
 static void move_down(struct cal *cal, int repeat)
 {
 	move_relative(cal, 1);
+}
+
+static int number_of_hours_in_view(struct cal *cal)
+{
+	time_t st = calendar_loc_to_time(cal, 0);
+	time_t et = calendar_loc_to_time(cal, 1.0);
+
+	return (et - st) / 60 / 60;
+}
+
+static void center_view(struct cal *cal)
+{
+	time_t current_hour;
+	struct tm current_tm;
+
+	current_tm = *localtime(&cal->current);
+	current_tm.tm_min = 0;
+	current_hour = mktime(&current_tm);
+
+	// get time at position top of view and bottom of view / 2
+
+	int half_hours = number_of_hours_in_view(cal) / 2 - 1;
+
+	cal->start_at = current_hour - cal->today - half_hours * 60 * 60;
+	cal->scroll = 0;
 }
 
 
@@ -863,7 +889,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 				cal->chord = 'z';
 			}
 			else if (cal->chord == 'z') {
-				// TODO: center around current time
+				center_view(cal);
 				cal->chord = 0;
 				cal->repeat = 1;
 			}

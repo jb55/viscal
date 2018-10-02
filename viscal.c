@@ -131,7 +131,7 @@ calendar_create(struct cal *cal) {
   today = mktime(&nowtm);
 
   cal->selected_calendar_ind = 0;
-  cal->selected_event_ind = 0;
+  cal->selected_event_ind = -1;
   cal->chord = 0;
   cal->gutter_height = 40;
   cal->timeblock_size = 30;
@@ -586,6 +586,11 @@ static struct event *get_selected_event(struct cal *cal)
 
 static inline int relative_selection(struct cal *cal, int rel)
 {
+	/* if (cal->selected_event_ind == -1) { */
+	/* 	// TODO: bias direction */
+	/* 	return find_event_closest_to(cal, cal->current); */
+	/* } */
+
 	return clamp(cal->selected_event_ind + rel, 0, cal->nevents - 1);
 }
 
@@ -597,16 +602,6 @@ static void select_down(struct cal *cal, int repeat)
 static void select_up(struct cal *cal, int repeat)
 {
 	cal->selected_event_ind = relative_selection(cal, -repeat);
-}
-
-static void move_up(struct cal *cal, int repeat)
-{
-	cal->current -= cal->timeblock_size * 60;
-}
-
-static void move_down(struct cal *cal, int repeat)
-{
-	cal->current += cal->timeblock_size * 60;
 }
 
 static void move_now(struct cal *cal)
@@ -649,6 +644,32 @@ static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 
 	return -1;
 }
+
+static int timeblock_seconds(struct cal *cal) {
+	return cal->timeblock_size * 60;
+}
+
+static void move_relative(struct cal *cal, int rel)
+{
+	int timeblock = timeblock_seconds(cal);
+	cal->current += rel * timeblock;
+
+	time_t st = cal->current;
+	time_t et = cal->current + timeblock_seconds;
+
+	if (query_span(cal, 0, st, et, 0, et)
+}
+
+static void move_up(struct cal *cal, int repeat)
+{
+	move_relative(cal, -1);
+}
+
+static void move_down(struct cal *cal, int repeat)
+{
+	move_relative(cal, 1);
+}
+
 
 static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 {
@@ -1350,7 +1371,8 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 		draw_event(cr, cal, ev);
 	}
 
-	draw_selection(cr, cal);
+	if (cal->selected_event_ind != -1)
+		draw_selection(cr, cal);
 
 	draw_time_line(cr, cal, time(&now));
 

@@ -81,6 +81,7 @@ struct cal {
 	char chord;
 	int repeat;
 
+	icalcomponent *select_after_sort;
 	int selected_event_ind;
 	int selected_calendar_ind;
 
@@ -119,33 +120,34 @@ static const double dashed[] = {1.0};
 
 static void
 calendar_create(struct cal *cal) {
-  time_t now;
-  time_t today, nowh;
-  struct tm nowtm;
+	time_t now;
+	time_t today, nowh;
+	struct tm nowtm;
 
-  now = time(NULL);
-  nowtm = *localtime(&now);
-  nowtm.tm_min = 0;
-  nowh = mktime(&nowtm);
-  nowtm.tm_hour = 0;
-  today = mktime(&nowtm);
+	now = time(NULL);
+	nowtm = *localtime(&now);
+	nowtm.tm_min = 0;
+	nowh = mktime(&nowtm);
+	nowtm.tm_hour = 0;
+	today = mktime(&nowtm);
 
-  cal->selected_calendar_ind = 0;
-  cal->selected_event_ind = -1;
-  cal->target = NULL;
-  cal->chord = 0;
-  cal->gutter_height = 40;
-  cal->timeblock_size = 30;
-  cal->ncalendars = 0;
-  cal->nevents = 0;
-  cal->start_at = nowh - today - 4*60*60;
-  cal->scroll = 0;
-  cal->current = nowh;
-  cal->repeat = 1;
-  cal->today = today;
-  cal->x = g_lmargin;
-  cal->y = cal->gutter_height;
-  cal->zoom = 2.0;
+	cal->selected_calendar_ind = 0;
+	cal->selected_event_ind = -1;
+	cal->select_after_sort = NULL;
+	cal->target = NULL;
+	cal->chord = 0;
+	cal->gutter_height = 40;
+	cal->timeblock_size = 30;
+	cal->ncalendars = 0;
+	cal->nevents = 0;
+	cal->start_at = nowh - today - 4*60*60;
+	cal->scroll = 0;
+	cal->current = nowh;
+	cal->repeat = 1;
+	cal->today = today;
+	cal->x = g_lmargin;
+	cal->y = cal->gutter_height;
+	cal->zoom = 2.0;
 }
 
 static void set_current_calendar(struct cal *cal, struct ical *ical)
@@ -293,7 +295,18 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 		}
 	}
 
+	printf("quicksorting\n");
 	qsort(cal->events, cal->nevents, sizeof(*cal->events), sort_event);
+
+	if (cal->select_after_sort) {
+		for (i = 0; i < cal->nevents; i++) {
+			if (cal->events[i].vevent == cal->select_after_sort) {
+				cal->selected_event_ind = i;
+				break;
+			}
+		}
+	}
+
 }
 
 
@@ -482,18 +495,27 @@ static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 
 static icalcomponent *
 create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
+	static char c = 'a';
+	static char buf[128] = "New Event ";
 	icalcomponent *vevent;
 	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
 	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, NULL);
 
 	vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
-	icalcomponent_set_summary(vevent, "New Event");
+	buf[10] = c++;
+	buf[11] = 0;
+	icalcomponent_set_summary(vevent, buf);
 	icalcomponent_set_dtstart(vevent, dtstart);
 	icalcomponent_set_dtend(vevent, dtend);
 	icalcomponent_add_component(ical, vevent);
 
 	calendar_refresh_events(cal);
+
+
+	// XXX: sooo the event doesn't technically exist yet, so this is potentially
+	// a buffer busting operation...  keep an eye out for this one :|
+	cal->select_after_sort = vevent;
 
 	return vevent;
 }
@@ -770,9 +792,6 @@ static void open_below(struct cal *cal)
 	set_current_calendar(cal, ev->ical);
 	create_event(cal, et, push_to, ev->ical->calendar);
 
-	// XXX: sooo the event doesn't technically exist yet, so this is potentially
-	// a buffer busting operation...  keep an eye out for this one :|
-	cal->selected_event_ind++;
 
 }
 

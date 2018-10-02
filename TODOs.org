@@ -2,9 +2,9 @@
 
 * Current 
 
-** TODO unify open_below and insert_event
+** TODO side-by-side events
 
-They do slightly different things at the moment
+If we have overlapping events, they should automatically subdivide
 
 ** TODO Open from caldav
 

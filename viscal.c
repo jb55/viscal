@@ -630,9 +630,17 @@ static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 {
 	time_t st, et;
 	struct event *ev;
+	int ret;
 
 	for (int i=index_hint; i < cal->nevents; i++) {
 		ev = &cal->events[i];
+
+		icaltimetype dtstart =
+			icalcomponent_get_dtstart(ev->vevent);
+
+		// date events aren't spans
+		if (dtstart.is_date)
+			continue;
 
 		vevent_span_timet(ev->vevent, &st, &et);
 		
@@ -652,13 +660,40 @@ static int timeblock_seconds(struct cal *cal) {
 
 static void move_relative(struct cal *cal, int rel)
 {
+	time_t st;
+	time_t et;
+	int hit;
 	int timeblock = timeblock_seconds(cal);
-	cal->current += rel * timeblock;
 
-	time_t st = cal->current;
-	time_t et = cal->current + timeblock_seconds;
+	// no current event selection
+	if (cal->selected_event_ind == -1)  {
+		cal->current += rel * timeblock;
+	}
+	else { // and event is selection
+		struct event *ev = get_selected_event(cal);
+		vevent_span_timet(ev->vevent, &st, &et);
 
-	if (query_span(cal, 0, st, et, 0, et)
+		cal->current = rel > 0 ? et : st - timeblock;
+	}
+
+	st = cal->current;
+	et = cal->current + timeblock;
+ 
+	if ((hit = query_span(cal, 0, st, et, 0, 0)) != -1) {
+		struct event *ev = &cal->events[hit];
+		icaltimetype dtstart =
+			icalcomponent_get_dtstart(ev->vevent);
+			
+		vevent_span_timet(ev->vevent, &st, &et);
+		cal->current = st;
+		const char * const summary =
+			icalcomponent_get_summary(ev->vevent);
+
+		printf("hit %d\n", hit);
+	}
+
+quit:
+	cal->selected_event_ind = hit;
 }
 
 static void move_up(struct cal *cal, int repeat)
@@ -1372,7 +1407,7 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 		draw_event(cr, cal, ev);
 	}
 
-	if (cal->selected_event_ind != -1)
+	if (cal->selected_event_ind == -1)
 		draw_selection(cr, cal);
 
 	draw_time_line(cr, cal, time(&now));
@@ -1476,7 +1511,7 @@ int main(int argc, char *argv[])
 
 
 	on_change_view(&cal);
-	select_closest_to_now(&cal);
+	//select_closest_to_now(&cal);
 
 	// TODO: get system timezone
 	cal.tz = icaltimezone_get_builtin_timezone("America/Vancouver");

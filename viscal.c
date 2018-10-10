@@ -520,9 +520,6 @@ create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
 
 	calendar_refresh_events(cal);
 
-
-	// XXX: sooo the event doesn't technically exist yet, so this is potentially
-	// a buffer busting operation...  keep an eye out for this one :|
 	cal->select_after_sort = vevent;
 
 	return vevent;

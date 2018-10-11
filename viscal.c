@@ -1,6 +1,7 @@
 
 #include <cairo/cairo.h>
 #include <gtk/gtk.h>
+#include <gdk/gdkkeysyms.h>
 #include <libical/ical.h>
 #include <assert.h>
 #include <time.h>
@@ -11,6 +12,8 @@
 
 #define length(array) (sizeof((array))/sizeof((array)[0]))
 
+#define clamp(val, low, high) (val < low ? low : (val > high ? high : val))
+
 #define max(a,b)                                \
   ({ __typeof__ (a) _a = (a);                   \
     __typeof__ (b) _b = (b);                    \
@@ -20,6 +23,8 @@
   ({ __typeof__ (a) _a = (a);                   \
     __typeof__ (b) _b = (b);                    \
     _a < _b ? _a : _b; })
+
+#define EDITBUF_MAX 32768
 
 // TODO: heap-realloc events array
 #define MAX_EVENTS 1024
@@ -44,6 +49,7 @@ enum cal_flags {
     CAL_MDOWN    = 1 << 0
   , CAL_DRAGGING = 1 << 1
   , CAL_SPLIT    = 1 << 2
+  , CAL_EDITING  = 1 << 3
 };
 
 union rgba {
@@ -70,6 +76,10 @@ struct event {
 	double dragx_off, dragy_off;
 	time_t drag_time;
 };
+
+// used for temporary storage when editing summaries, descriptions, etc
+static char g_editbuf[EDITBUF_MAX] = {0};
+static int g_editbuf_pos = 0;
 
 struct cal {
 	GtkWidget *widget;
@@ -150,13 +160,17 @@ calendar_create(struct cal *cal) {
 	cal->zoom = 2.0;
 }
 
+static void warn(const char *msg) {
+	printf("WARN %s\n", msg);
+}
+
 static void set_current_calendar(struct cal *cal, struct ical *ical)
 {
 	for (int i = 0; i < cal->ncalendars; i++) {
 		if (&cal->calendars[i] == ical)
 			cal->selected_calendar_ind = i;
 	}
-}	
+}
 
 static struct ical *current_calendar(struct cal *cal) {
 	if (cal->ncalendars == 0)
@@ -266,6 +280,49 @@ static void select_closest_to_now(struct cal *cal)
 }
 
 
+static void set_edit_buffer(const char *src)
+{
+	char *dst = g_editbuf;
+	int n = 0;
+	int c = EDITBUF_MAX;
+
+	while (c-- && (*dst++ = *src++))
+		n++;
+
+	g_editbuf_pos = n;
+}
+
+static struct event *get_selected_event(struct cal *cal)
+{
+	if (cal->nevents == 0 || cal->selected_event_ind == -1)
+		return NULL;
+	return &cal->events[cal->selected_event_ind];
+}
+
+
+static void edit_mode(struct cal *cal)
+{
+	// TODO: STATUS BAR for edit mode
+
+	struct event *event =
+		get_selected_event(cal);
+
+	// don't enter edit mode if we're not selecting any event
+	if (!event)
+		return;
+
+	cal->flags |= CAL_EDITING;
+
+	const char *summary =
+		icalcomponent_get_summary(event->vevent);
+
+	// TODO: what are we editing? for now assume summary
+	// copy current summary to edit buffer
+	set_edit_buffer(summary);
+}
+
+
+
 static void
 events_for_view(struct cal *cal, time_t start, time_t end)
 {
@@ -302,6 +359,8 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 		for (i = 0; i < cal->nevents; i++) {
 			if (cal->events[i].vevent == cal->select_after_sort) {
 				cal->selected_event_ind = i;
+				// HACK: we might not always want to do this...
+				edit_mode(cal);
 				break;
 			}
 		}
@@ -503,17 +562,14 @@ static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 
 static icalcomponent *
 create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
-	static char c = 'a';
-	static char buf[128] = "New Event ";
+	static const char *default_event_summary = "";
 	icalcomponent *vevent;
 	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
 	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, NULL);
 
 	vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
-	buf[10] = c++;
-	buf[11] = 0;
-	icalcomponent_set_summary(vevent, buf);
+	icalcomponent_set_summary(vevent, default_event_summary);
 	icalcomponent_set_dtstart(vevent, dtstart);
 	icalcomponent_set_dtend(vevent, dtend);
 	icalcomponent_add_component(ical, vevent);
@@ -603,15 +659,6 @@ static void zoom(struct cal *cal, double amt)
 	cal->zoom_at = cal->my;
 }
 
-static struct event *get_selected_event(struct cal *cal)
-{
-	if (cal->nevents == 0 || cal->selected_event_ind == -1)
-		return NULL;
-	return &cal->events[cal->selected_event_ind];
-}
-
-#define clamp(val, low, high) (val < low ? low : (val > high ? high : val))
-
 static inline int relative_selection(struct cal *cal, int rel)
 {
 	/* if (cal->selected_event_ind == -1) { */
@@ -638,6 +685,7 @@ static void move_now(struct cal *cal)
 	cal->current =
 		closest_timeblock_for_timet(now, cal->timeblock_size);
 }
+
 
 static void insert_event(struct cal *cal)
 {
@@ -669,7 +717,7 @@ static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 			continue;
 
 		vevent_span_timet(ev->vevent, &st, &et);
-		
+
 		if ((min_start != 0 && st < min_start) ||
 		    (max_end   != 0 && et > max_end))
 			continue;
@@ -704,7 +752,7 @@ static void move_relative(struct cal *cal, int rel)
 
 	st = cal->current;
 	et = cal->current + timeblock;
- 
+
 	if ((hit = query_span(cal, 0, st, et, 0, 0)) != -1) {
 		struct event *ev = &cal->events[hit];
 		vevent_span_timet(ev->vevent, &st, &et);
@@ -818,6 +866,128 @@ static void open_below(struct cal *cal)
 
 }
 
+static void finish_editing(struct cal *cal)
+{
+	struct event *event = get_selected_event(cal);
+
+	if (!event)
+		return;
+
+	// TODO: what are we editing?
+	// Right now we can only edit the summary
+
+	// set summary of selected event
+	icalcomponent_set_summary(event->vevent, g_editbuf);
+
+	// leave edit mode
+	cal->flags &= ~CAL_EDITING;
+}
+
+static void append_str_edit_buffer(const char *src)
+{
+	if (*src == '\0')
+		return;
+
+	char *dst = &g_editbuf[g_editbuf_pos];
+	int c = g_editbuf_pos;
+
+	while (c < EDITBUF_MAX && (*dst++ = *src++))
+		c++;
+
+	if (c == EDITBUF_MAX-1)
+		g_editbuf[EDITBUF_MAX-1] = '\0';
+
+	g_editbuf_pos = c;
+
+}
+
+/* static void append_edit_buffer(char key) */
+/* { */
+/* 	if (g_editbuf_pos + 1 >= EDITBUF_MAX) { */
+/* 		warn("attempting to write past end of edit buffer"); */
+/* 		return; */
+/* 	} */
+/* 	g_editbuf[g_editbuf_pos++] = key; */
+/* } */
+
+static void pop_edit_buffer(int amount)
+{
+	amount = clamp(amount, 0, EDITBUF_MAX-1);
+	int top = g_editbuf_pos - amount;
+	top = clamp(top, 0, EDITBUF_MAX-1);
+	g_editbuf[top] = '\0';
+	g_editbuf_pos = top;
+}
+
+static void cancel_editing(struct cal *cal)
+{
+	cal->flags &= ~CAL_EDITING;
+}
+
+static void pop_word_edit_buffer()
+{
+	int c = clamp(g_editbuf_pos - 2, 0, EDITBUF_MAX-1);
+	char *p = &g_editbuf[c];
+
+	while (p >= g_editbuf && *(p--) != ' ')
+		;
+
+	if (*(p + 1) == ' ') {
+		p += 2;
+		*p = '\0';
+	}
+	else
+		*(++p) = '\0';
+
+	g_editbuf_pos = p - g_editbuf;
+
+	return;
+}
+
+
+static int on_edit_keypress(struct cal *cal, GdkEventKey *event)
+{
+	char key = *event->string;
+
+	switch (event->keyval) {
+	case GDK_KEY_Escape:
+		cancel_editing(cal);
+		return 1;
+
+	case GDK_KEY_Return:
+		finish_editing(cal);
+		return 1;
+
+	case GDK_KEY_BackSpace:
+		pop_edit_buffer(1);
+		return 1;
+	}
+
+	if (key == 0x17) {
+		pop_word_edit_buffer();
+		return 1;
+	}
+
+	// TODO: more special edit keys
+
+	if (*event->string >= 0x20)
+		append_str_edit_buffer(event->string);
+
+	return 1;
+}
+
+static void debug_edit_buffer(GdkEventKey *event)
+{
+	int len = strlen(event->string);
+	printf("edit buffer: %s[%x][%ld] %d %d '%s'\n",
+	       event->string,
+	       len > 0 ? *event->string : '\0',
+	       strlen(event->string),
+	       event->state,
+	       g_editbuf_pos,
+	       g_editbuf);
+}
+
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
 {
 	struct extra_data *data = (struct extra_data*)user_data;
@@ -830,7 +1000,14 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:
+		if (cal->flags & CAL_EDITING) {
+			state_changed = on_edit_keypress(cal, &event->key);
+			debug_edit_buffer(&event->key);
+			goto check_state;
+		}
+
 		key = *event->key.string;
+
 		int nkey = key - '0';
 
 		if (nkey >= 2 && nkey <= 9) {
@@ -843,6 +1020,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		case 'd':
 			cal->scroll += scroll_amt;
 			cal->repeat = 1;
+			break;
+
+		case 'e':
+			edit_mode(cal);
 			break;
 
 		case 't':
@@ -919,6 +1100,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		break;
 	}
 
+check_state:
 	if (state_changed)
 		on_state_change(widget, event, user_data);
 
@@ -1267,9 +1449,8 @@ static void saturate(union rgba *c, double change)
 	c->b = P+((c->b)-P)*change;
 }
 
-
 static void
-draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
+draw_event (cairo_t *cr, struct cal *cal, struct event *ev, struct event *sel) {
 	// double height = Math.fmin(, MIN_EVENT_HEIGHT);
 	// stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
 	// 			  sloc, eloc, dloc, eheight);
@@ -1286,6 +1467,9 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	/* icaltimetype dtend = icalcomponent_get_dtend(ev->vevent); */
 	int isdate = dtstart.is_date;
 
+	int is_selected = sel == ev;
+	int is_editing = is_selected && (cal->flags & CAL_EDITING);
+
 	time_t st, et;
 	vevent_span_timet(ev->vevent, &st, &et);
 
@@ -1301,8 +1485,10 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	time_t len = et - st;
 	cairo_text_extents_t exts;
 
+	// TODO: we may not be editing the summary
 	const char * const summary =
-		icalcomponent_get_summary(ev->vevent);
+		is_editing ? g_editbuf
+			   : icalcomponent_get_summary(ev->vevent);
 
 	if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
 		c.a *= 0.95;
@@ -1322,9 +1508,8 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	cairo_move_to(cr, x, y);
 
 	// TODO: selected event rendering
-	if (get_selected_event(cal) == ev) {
+	if (is_selected)
 		saturate(&c, 0.5);
-	}
 
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
@@ -1333,7 +1518,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 	static const double txtc = 0.2;
 	cairo_set_source_rgb(cr, txtc, txtc, txtc);
 	if (isdate) {
-		sprintf(buffer, "%s", summary);
+		sprintf(buffer, is_selected ? "'%s'" : "%s", summary);
 		cairo_text_extents(cr, buffer, &exts);
 		cairo_move_to(cr, x + EVPAD, y + (evheight / 2.0)
 						+ ((double)exts.height / 2.0));
@@ -1365,17 +1550,35 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev) {
 		format_time_duration(duration_format_in, sizeof(duration_format), in);
 		format_time_duration(duration_format_out, sizeof(duration_format), out);
 
-		if (out >= 0 && in >= 0 && out < len)
-			sprintf(buffer, "%s | %s | %s in | %s left", summary,
-				duration_format,
-				duration_format_in,
-				duration_format_out);
-		else if (in >= 0 && in < 0)
-			sprintf(buffer, "%s | %s | %s in", summary,
+		if (out >= 0 && in >= 0 && out < len) {
+			const char *fmt =
+				is_editing
+					?  "'%s' | %s | %s in | %s left"
+					:  "%s | %s | %s in | %s left";
+
+				sprintf(buffer, fmt, summary,
+					duration_format,
+					duration_format_in,
+					duration_format_out);
+		}
+		else if (in >= 0 && in < 0) {
+			const char *fmt =
+				is_editing
+					?  "'%s' | %s | %s in"
+					:  "%s | %s | %s in";
+
+			sprintf(buffer, fmt, summary,
 				duration_format,
 				duration_format_in);
-		else
-			sprintf(buffer, "%s | %s", summary, duration_format);
+		}
+		else {
+			const char *fmt =
+				is_editing
+					? "'%s' | %s"
+					: "%s | %s";
+
+			sprintf(buffer, fmt, summary, duration_format);
+		}
 
 		cairo_text_extents(cr, buffer, &exts);
 		double ey = evheight < exts.height
@@ -1441,10 +1644,13 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	draw_background(cr, width, height);
 	draw_hours(cr, cal);
 
+	struct event *selected =
+		get_selected_event(cal);
+
 	// draw calendar events
 	for (i = 0; i < cal->nevents; ++i) {
 		struct event *ev = &cal->events[i];
-		draw_event(cr, cal, ev);
+		draw_event(cr, cal, ev, selected);
 	}
 
 	if (cal->selected_event_ind == -1)

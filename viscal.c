@@ -10,7 +10,7 @@
 #include <math.h>
 #include <locale.h>
 
-#define length(array) (sizeof((array))/sizeof((array)[0]))
+#define ARRAY_SIZE(array) (sizeof((array))/sizeof((array)[0]))
 
 #define clamp(val, low, high) (val < low ? low : (val > high ? high : val))
 
@@ -110,6 +110,8 @@ struct cal {
 
 	int height, width;
 };
+
+typedef void (chord_cmd)(struct cal *);
 
 struct extra_data {
   GtkWindow *win;
@@ -436,7 +438,7 @@ calendar_load_ical(struct cal *cal, char *path) {
   if (!calendar) return NULL;
 
   // TODO: support >128 calendars
-  if (length(cal->calendars) == cal->ncalendars)
+  if (ARRAY_SIZE(cal->calendars) == cal->ncalendars)
     return NULL;
 
   ical = &cal->calendars[cal->ncalendars++];
@@ -474,7 +476,7 @@ calendar_drop(struct cal *cal, double mx, double my) {
 
 	icaltime_span span = icalcomponent_get_span(ev->vevent);
 
-	// TODO: use default event length when dragging from gutter?
+	// TODO: use default event ARRAY_SIZE when dragging from gutter?
 	time_t len = span.end - span.start;
 
 	// XXX: should dragging timezone be the local timezone?
@@ -614,7 +616,7 @@ calendar_view_clicked(struct cal *cal, int mx, int my) {
   closest = closest_timeblock(cal, my);
 
 
-  format_locale_timet(buf, length(buf), closest);
+  format_locale_timet(buf, sizeof(buf), closest);
   printf("(%d,%d) clicked @%s\n", mx, my, buf);
   create_event(cal, closest, closest + cal->timeblock_size * 60,
 	       calendar_def_cal(cal));
@@ -669,14 +671,9 @@ static inline int relative_selection(struct cal *cal, int rel)
 	return clamp(cal->selected_event_ind + rel, 0, cal->nevents - 1);
 }
 
-static void select_down(struct cal *cal, int repeat)
+static void select_up(struct cal *cal)
 {
-	cal->selected_event_ind = relative_selection(cal, repeat);
-}
-
-static void select_up(struct cal *cal, int repeat)
-{
-	cal->selected_event_ind = relative_selection(cal, -repeat);
+	cal->selected_event_ind = relative_selection(cal, -cal->repeat);
 }
 
 static void move_now(struct cal *cal)
@@ -797,6 +794,38 @@ static void center_view(struct cal *cal)
 	cal->scroll = 0;
 }
 
+static void select_down(struct cal *cal)
+{
+	cal->selected_event_ind =
+		relative_selection(cal, cal->repeat);
+}
+
+
+struct chord {
+	char *keys;
+	chord_cmd *cmd;
+};
+
+// TODO: make zoom_amt configurable
+static const int zoom_amt = 1.5;
+
+static void zoom_in(struct cal *cal) {
+	for (int i=0; i < cal->repeat; i++)
+		zoom(cal, -zoom_amt);
+}
+
+static void zoom_out(struct cal *cal) {
+	for (int i=0; i < cal->repeat; i++)
+		zoom(cal, zoom_amt);
+}
+
+static struct chord chords[] = {
+	{ "zz", center_view },
+	{ "zi", zoom_in },
+	{ "zo", zoom_out },
+	{ "gj", select_down },
+	{ "gk", select_up },
+};
 
 static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 {
@@ -988,15 +1017,26 @@ static void debug_edit_buffer(GdkEventKey *event)
 	       g_editbuf);
 }
 
+static chord_cmd *get_chord_cmd(char current_chord, char key) {
+	struct chord *chord;
+
+	for (size_t i = 0; i < ARRAY_SIZE(chords); ++i) {
+		chord = &chords[i];
+		if (chord->keys[0] == current_chord && chord->keys[1] == key) {
+			return chord->cmd;
+		}
+	}
+
+	return NULL;
+}
+
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
 {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
 	char key;
 	int state_changed = 1;
-	int i = 0;
 	static const int scroll_amt = 60*60;
-	static const int zoom_amt = 1.5;
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:
@@ -1007,6 +1047,29 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		}
 
 		key = *event->key.string;
+
+		// handle chords
+		if (cal->chord) {
+			chord_cmd *cmd =
+				get_chord_cmd(cal->chord, key);
+
+			// no chord cmd found, reset chord
+			if (cmd == NULL)
+				cal->chord = 0;
+			else {
+				// execute chord
+				(*cmd)(cal);
+
+				// reset chord
+				cal->chord = 0;
+
+				// we've executed a command, so reset repeat
+				cal->repeat = 1;
+
+				state_changed = 1;
+				goto check_state;
+			}
+		}
 
 		int nkey = key - '0';
 
@@ -1019,7 +1082,6 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 
 		case 'd':
 			cal->scroll += scroll_amt;
-			cal->repeat = 1;
 			break;
 
 		case 'e':
@@ -1032,68 +1094,37 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 
 		case 'u':
 			cal->scroll -= scroll_amt;
-			cal->repeat = 1;
 			break;
 
 		case 'g':
-			if (cal->chord == 0)
-				cal->chord = 'g';
+			assert(cal->chord == 0);
+			cal->chord = 'g';
 			break;
 
 		case 'j':
-			if (cal->chord == 0) {
-				move_down(cal, cal->repeat);
-			}
-			else if (cal->chord == 'g') {
-				select_down(cal, cal->repeat);
-				cal->chord = 0;
-			}
-			cal->repeat = 1;
+			move_down(cal, cal->repeat);
 			break;
 
 		case 'k':
-			if (cal->chord == 0) {
-				move_up(cal, cal->repeat);
-			}
-			else if (cal->chord == 'g') {
-				select_up(cal, cal->repeat);
-				cal->chord = 0;
-			}
-			cal->repeat = 1;
+			move_up(cal, cal->repeat);
 			break;
 
 		case 'z':
-			if (cal->chord == 0) {
-				cal->chord = 'z';
-			}
-			else if (cal->chord == 'z') {
-				center_view(cal);
-				cal->chord = 0;
-				cal->repeat = 1;
-			}
+			assert(cal->chord == 0);
+			cal->chord = 'z';
 			break;
+
 		case 'i':
-			if (cal->chord == 0) {
-				insert_event(cal);
-			}
-			else if (cal->chord == 'z') {
-				for (i=0; i < cal->repeat; i++)
-					zoom(cal, -zoom_amt);
-				cal->chord = 0;
-			}
-			cal->repeat = 1;
+			insert_event(cal);
 			break;
+
 		case 'o':
-			if (cal->chord == 'z') {
-				for (i=0; i < cal->repeat; i++)
-					zoom(cal, zoom_amt);
-				cal->repeat = 1;
-				cal->chord = 0;
-			}
-			else
-				open_below(cal);
+			open_below(cal);
 			break;
 		}
+
+		cal->repeat = 1;
+
 		break;
 	default:
 		state_changed = 0;

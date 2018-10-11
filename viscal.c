@@ -46,10 +46,11 @@ enum event_flags {
 };
 
 enum cal_flags {
-    CAL_MDOWN    = 1 << 0
-  , CAL_DRAGGING = 1 << 1
-  , CAL_SPLIT    = 1 << 2
-  , CAL_EDITING  = 1 << 3
+    CAL_MDOWN      = 1 << 0
+  , CAL_DRAGGING   = 1 << 1
+  , CAL_SPLIT      = 1 << 2
+  , CAL_EDITING    = 1 << 3
+  , CAL_INSERTING  = 1 << 4
 };
 
 union rgba {
@@ -695,6 +696,8 @@ static void insert_event(struct cal *cal)
 	time_t et = cal->current + cal->timeblock_size * 60;
 
 	create_event(cal, st, et, current_calendar(cal)->calendar);
+
+	cal->flags |= CAL_INSERTING;
 }
 
 static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
@@ -880,6 +883,7 @@ static void open_below(struct cal *cal)
 
 	// push down all nearby events
 	// TODO: filter on visible calendars
+	// TODO: don't push down immovable events
 	for (ind = cal->selected_event_ind + 1; ind != -1; ind++) {
 		ind = query_span(cal, ind, et, push_to, et, 0);
 
@@ -890,9 +894,10 @@ static void open_below(struct cal *cal)
 	}
 
 	set_current_calendar(cal, ev->ical);
+
 	create_event(cal, et, push_to, ev->ical->calendar);
 
-
+	cal->flags |= CAL_INSERTING;
 }
 
 static void finish_editing(struct cal *cal)
@@ -948,9 +953,25 @@ static void pop_edit_buffer(int amount)
 	g_editbuf_pos = top;
 }
 
+static void delete_event(struct event *event)
+{
+	icalcomponent_remove_component(event->ical, event->vevent);
+}
+
 static void cancel_editing(struct cal *cal)
 {
-	cal->flags &= ~CAL_EDITING;
+	// delete the event if we cancel during insert
+	if (cal->flags & CAL_INSERTING) {
+		struct event *event =
+			get_selected_event(cal);
+
+		// we should have a selected event if we're cancelling
+		assert(event);
+
+		delete_event(event);
+	}
+
+	cal->flags &= ~(CAL_EDITING | CAL_INSERTING);
 }
 
 static void pop_word_edit_buffer()

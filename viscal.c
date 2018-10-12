@@ -1271,6 +1271,12 @@ static chord_cmd *get_chord_cmd(char current_chord, char key) {
 	return NULL;
 }
 
+static void set_chord(struct cal *cal, char c)
+{
+	assert(cal->chord == 0);
+	cal->chord = c;
+}
+
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
 {
 	struct extra_data *data = (struct extra_data*)user_data;
@@ -1334,8 +1340,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 
 		case 'd':
-			assert(cal->chord == 0);
-			cal->chord = 'd';
+			set_chord(cal, 'd');
 			break;
 
 		case 'S':
@@ -1357,8 +1362,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 
 		case 'g':
-			assert(cal->chord == 0);
-			cal->chord = 'g';
+			set_chord(cal, 'g');
 			break;
 
 		case 'K':
@@ -1378,8 +1382,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 
 		case 'z':
-			assert(cal->chord == 0);
-			cal->chord = 'z';
+			set_chord(cal, 'z');
 			break;
 
 		case 'v':

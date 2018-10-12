@@ -306,8 +306,11 @@ static struct event *get_selected_event(struct cal *cal)
 	return &cal->events[cal->selected_event_ind];
 }
 
+enum edit_mode_flags {
+	EDIT_CLEAR = 1 << 1,
+};
 
-static void edit_mode(struct cal *cal)
+static void edit_mode(struct cal *cal, int flags)
 {
 	// TODO: STATUS BAR for edit mode
 
@@ -319,6 +322,9 @@ static void edit_mode(struct cal *cal)
 		return;
 
 	cal->flags |= CAL_CHANGING;
+
+	if (flags & EDIT_CLEAR)
+		return set_edit_buffer("");
 
 	const char *summary =
 		icalcomponent_get_summary(event->vevent);
@@ -367,7 +373,7 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 			if (cal->events[i].vevent == cal->select_after_sort) {
 				cal->selected_event_ind = i;
 				// HACK: we might not always want to do this...
-				edit_mode(cal);
+				edit_mode(cal, 0);
 				break;
 			}
 		}
@@ -800,21 +806,56 @@ static void center_view(struct cal *cal)
 	cal->scroll = 0;
 }
 
+static void expand_event(struct event *event, int minutes)
+{
+	icaltimetype dtend =
+		icalcomponent_get_dtend(event->vevent);
+
+	struct icaldurationtype add_minutes =
+		icaldurationtype_from_int(minutes * 60);
+
+	icaltimetype new_dtend =
+		icaltime_add(dtend, add_minutes);
+
+	icalcomponent_set_dtend(event->vevent, new_dtend);
+	// TODO: push down
+}
+
+static int event_minutes(struct event *event)
+{
+	time_t st, et;
+	vevent_span_timet(event->vevent, &st, &et);
+	return (et - st) / 60;
+}
+
 static void expand_selection_relative(struct cal *cal, int sign)
 {
 	int *step = &cal->timeblock_step;
 
-	if (sign < 0 && cal->timeblock_size <= 15)
+	struct event *event =
+		get_selected_event(cal);
+
+	int size =
+		event == NULL ? cal->timeblock_size : event_minutes(event);
+
+	if (sign < 0 && size <= 15)
 		*step = 5;
-	else if (sign > 0 && cal->timeblock_size >= 15)
+	else if (sign > 0 && size >= 15)
 		*step = 15;
 
-	int amount = *step * sign;
+	int minutes = *step * sign;
 
-	if (cal->timeblock_size + amount <= 0)
+	if (size + minutes <= 0)
 		return;
 
-	cal->timeblock_size += amount;
+	// no selected event, just expand selector
+	if (event == NULL) {
+		cal->timeblock_size += minutes;
+		return;
+	} else {
+		// expand event if it's selected
+		expand_event(event, minutes);
+	}
 }
 
 static void expand_selection(struct cal *cal)
@@ -1136,8 +1177,14 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->scroll += scroll_amt;
 			break;
 
-		case 'c':
-			edit_mode(cal);
+		case 'S':
+		case 's':
+			edit_mode(cal, EDIT_CLEAR);
+			break;
+
+		case 'A':
+		case 'a':
+			edit_mode(cal, 0);
 			break;
 
 		case 't':

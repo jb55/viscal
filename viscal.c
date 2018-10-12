@@ -392,8 +392,7 @@ static void edit_mode(struct cal *cal, int flags)
 
 
 
-static void
-events_for_view(struct cal *cal, time_t start, time_t end)
+static void events_for_view(struct cal *cal, time_t start, time_t end)
 {
 	int i;
 	struct event *event;
@@ -440,9 +439,8 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 }
 
 
-static void
-on_change_view(struct cal *cal) {
-  events_for_view(cal, calendar_view_start(cal), calendar_view_end(cal));
+static void on_change_view(struct cal *cal) {
+	events_for_view(cal, calendar_view_start(cal), calendar_view_end(cal));
 }
 
 
@@ -458,16 +456,14 @@ on_change_view(struct cal *cal) {
 /* 	fflush(stdout); */
 /* } */
 
-static void
-calendar_refresh_events(struct cal *cal) {
+static void calendar_refresh_events(struct cal *cal) {
 	cal->refresh_events = 1;
 	gtk_widget_queue_draw(cal->widget);
 }
 
 
 
-static int
-on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
+static int on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
 
@@ -479,41 +475,39 @@ on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
 }
 
 
-static char *
-file_load(char *path) {
-  FILE *f = fopen(path, "rb");
-  if (!f) return NULL;
-  fseek(f, 0, SEEK_END);
-  long fsize = ftell(f);
-  fseek(f, 0, SEEK_SET);
+static char * file_load(char *path) {
+	FILE *f = fopen(path, "rb");
+	if (!f) return NULL;
+	fseek(f, 0, SEEK_END);
+	long fsize = ftell(f);
+	fseek(f, 0, SEEK_SET);
 
-  char *string = malloc(fsize);
-  int res = fread(string, fsize, 1, f);
-  if (!res) return NULL;
-  fclose(f);
-  return string;
+	char *string = malloc(fsize);
+	int res = fread(string, fsize, 1, f);
+	if (!res) return NULL;
+	fclose(f);
+	return string;
 }
 
-static struct ical *
-calendar_load_ical(struct cal *cal, char *path) {
-  // TODO: don't load duplicate calendars
-  struct ical* ical;
+static struct ical * calendar_load_ical(struct cal *cal, char *path) {
+	// TODO: don't load duplicate calendars
+	struct ical* ical;
 
-  // TODO: free icalcomponent somewhere
-  const char *str = file_load(path);
-  if (str == NULL) return NULL;
-  icalcomponent *calendar = icalparser_parse_string(str);
-  if (!calendar) return NULL;
+	// TODO: free icalcomponent somewhere
+	const char *str = file_load(path);
+	if (str == NULL) return NULL;
+	icalcomponent *calendar = icalparser_parse_string(str);
+	if (!calendar) return NULL;
 
-  // TODO: support >128 calendars
-  if (ARRAY_SIZE(cal->calendars) == cal->ncalendars)
-    return NULL;
+	// TODO: support >128 calendars
+	if (ARRAY_SIZE(cal->calendars) == cal->ncalendars)
+	return NULL;
 
-  ical = &cal->calendars[cal->ncalendars++];
-  ical->calendar = calendar;
+	ical = &cal->calendars[cal->ncalendars++];
+	ical->calendar = calendar;
 
-  free((void*)str);
-  return ical;
+	free((void*)str);
+	return ical;
 }
 
 
@@ -542,8 +536,7 @@ static struct event *get_target(struct cal *cal) {
 }
 
 
-static void
-calendar_drop(struct cal *cal, double mx, double my) {
+static void calendar_drop(struct cal *cal, double mx, double my) {
 	struct event *ev = get_target(cal);
 
 	if (!ev)
@@ -570,30 +563,26 @@ calendar_drop(struct cal *cal, double mx, double my) {
 }
 
 
-static time_t
-location_to_time(time_t start, time_t end, double loc) {
+static time_t location_to_time(time_t start, time_t end, double loc) {
 	return (time_t)((double)start) + (loc * (end - start));
 }
 
 
 
-static time_t
-calendar_pos_to_time(struct cal *cal, double y) {
+static time_t calendar_pos_to_time(struct cal *cal, double y) {
 	// TODO: this is wrong wrt. zoom
 	return location_to_time(calendar_view_start(cal),
 				calendar_view_end(cal),
 				y/((double)cal->height * cal->zoom));
 }
 
-static time_t
-calendar_loc_to_time(struct cal *cal, double y) {
+static time_t calendar_loc_to_time(struct cal *cal, double y) {
 	return location_to_time(calendar_view_start(cal),
 				calendar_view_end(cal),
 				y/cal->zoom);
 }
 
-static void
-event_click(struct cal *cal, struct event *event, int mx, int my) {
+static void event_click(struct cal *cal, struct event *event, int mx, int my) {
 	printf("clicked %s\n", icalcomponent_get_summary(event->vevent));
 
 	calendar_pos_to_time(cal, my);
@@ -637,8 +626,8 @@ static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 
 
 
-static icalcomponent *
-create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
+static icalcomponent *create_event(struct cal *cal, time_t start, time_t end,
+				   icalcomponent *ical) {
 	static const char *default_event_summary = "";
 	icalcomponent *vevent;
 	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
@@ -658,8 +647,7 @@ create_event(struct cal *cal, time_t start, time_t end, icalcomponent *ical) {
 	return vevent;
 }
 
-static icalcomponent *
-calendar_def_cal(struct cal *cal) {
+static icalcomponent *calendar_def_cal(struct cal *cal) {
   // TODO: configurable default calendar
   if (cal->ncalendars > 0)
     return cal->calendars[0].calendar;
@@ -674,16 +662,14 @@ static time_t closest_timeblock_for_timet(time_t st, int timeblock_size) {
 	return mktime(&lt);
 }
 
-static time_t
-closest_timeblock(struct cal *cal, int y) {
+static time_t closest_timeblock(struct cal *cal, int y) {
 	time_t st = calendar_pos_to_time(cal, y);
 	return closest_timeblock_for_timet(st, cal->timeblock_size);
 }
 
 
 
-static int
-event_hit (struct event *ev, double mx, double my) {
+static int event_hit (struct event *ev, double mx, double my) {
 	return
 		mx >= ev->x
 		&& mx <= (ev->x + ev->width)
@@ -759,8 +745,7 @@ static void insert_event_action(struct cal *cal)
 }
 
 
-static void
-calendar_view_clicked(struct cal *cal, int mx, int my) {
+static void calendar_view_clicked(struct cal *cal, int mx, int my) {
 	time_t closest;
 	/* int y; */
 	char buf[32];

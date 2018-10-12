@@ -1249,7 +1249,7 @@ static int on_edit_keypress(struct cal *cal, GdkEventKey *event)
 static void debug_edit_buffer(GdkEventKey *event)
 {
 	int len = strlen(event->string);
-	printf("edit buffer: %s[%x][%ld] %d %d '%s'\n",
+	printf("DEBUG edit buffer: %s[%x][%ld] %d %d '%s'\n",
 	       event->string,
 	       len > 0 ? *event->string : '\0',
 	       strlen(event->string),
@@ -1319,13 +1319,18 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 		}
 
-		printf("keystring %x\n", *event->key.string);
+		printf("DEBUG keystring %x\n", *event->key.string);
 
 		switch (key) {
 
 		// Ctrl-d
 		case 0x4:
 			cal->scroll += scroll_amt;
+			break;
+
+		// Ctrl-u
+		case 0x15:
+			cal->scroll -= scroll_amt;
 			break;
 
 		case 'd':
@@ -1349,10 +1354,6 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 
 		case 't':
 			move_now(cal);
-			break;
-
-		case 'u':
-			cal->scroll -= scroll_amt;
 			break;
 
 		case 'g':
@@ -1691,17 +1692,21 @@ draw_hours (cairo_t *cr, struct cal* cal)
 	char buffer[32] = {0};
 	const double col = 0.4;
 	cairo_set_source_rgb (cr, col, col, col);
-	cairo_set_line_width (cr, 1);
 
 	// TODO: dynamic section subdivide on zoom?
 	for (int section = 0; section < 48; section++) {
 		int start_section = ((cal->start_at + cal->scroll) / 60 / 60) * 2;
 		int minutes = (start_section + section) * 30;
 		int onhour = ((minutes / 30) % 2) == 0;
+		int hour = (minutes / 60) % 24;
+		int onday = onhour && hour == 0;
+
 		if (section_height < 14 && !onhour)
 			continue;
 
 		double y = cal->y + ((double)section) * section_height;
+
+		cairo_set_line_width (cr, onday ? 4 : 1);
 		cairo_move_to (cr, cal->x, y);
 		cairo_rel_line_to (cr, width, 0);
 
@@ -1714,7 +1719,7 @@ draw_hours (cairo_t *cr, struct cal* cal)
 		cairo_set_dash (cr, NULL, 0, 0);
 
 		if (onhour) {
-			format_margin_time(buffer, 32, (minutes / 60) % 24);
+			format_margin_time(buffer, 32, hour);
 			// TODO: text extents for proper time placement?
 			cairo_move_to(cr, g_lmargin - (g_margin_time_w + EVPAD),
 				      y+TXTPAD);

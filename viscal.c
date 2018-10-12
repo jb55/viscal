@@ -324,7 +324,6 @@ static int find_event_within(struct cal *cal, time_t target, int seconds_range)
 		diff = abs(target - evtime);
 
 		if (diff > prev) {
-			printf("selecting %d diff (%d)\n", i, diff);
 			if (prev > seconds_range)
 				return -1;
 			return i+1;
@@ -1073,13 +1072,19 @@ static int event_is_today(time_t today, struct event *event)
 
 static void move_event(struct event *event, int minutes)
 {
+	time_t tst, tet;
 	icaltimetype st, et;
-
-	struct icaldurationtype add =
-		icaldurationtype_from_int(minutes * 60);
+	struct icaldurationtype add;
 
 	st = icalcomponent_get_dtstart(event->vevent);
 	et = icalcomponent_get_dtend(event->vevent);
+
+	if (abs(minutes) == 1) {
+		vevent_span_timet(event->vevent, &tst, &tet);
+		minutes = minutes * ((tet - tst) / 60);
+	}
+
+	add = icaldurationtype_from_int(minutes * 60);
 
 	st = icaltime_add(st, add);
 	et = icaltime_add(et, add);
@@ -1098,7 +1103,7 @@ static void move_event_action(struct cal *cal, int direction)
 	if (!event)
 		return;
 
-	move_event(event, direction * 15);
+	move_event(event, direction);
 }
 
 
@@ -1125,7 +1130,8 @@ static void delete_event(struct cal *cal, struct event *event)
 
 	// adjust indices
 	cal->nevents--;
-	cal->selected_event_ind = find_event_within(cal, st, 0);
+	/* cal->selected_event_ind = find_event_within(cal, st, 0); */
+	cal->selected_event_ind = -1;
 	cal->target--;
 }
 

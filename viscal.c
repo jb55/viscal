@@ -365,6 +365,7 @@ events_for_view(struct cal *cal, time_t start, time_t end)
 		}
 	}
 
+	printf("DEBUG sorting\n");
 	qsort(cal->events, cal->nevents, sizeof(*cal->events), sort_event);
 
 	// useful for selecting a new event after insertion
@@ -1023,11 +1024,23 @@ static void pop_edit_buffer(int amount)
 	g_editbuf_pos = top;
 }
 
-static void delete_event(struct event *event)
+static void delete_event(struct cal *cal, struct event *event)
 {
+	int i, ind = -1;
 	icalcomponent_remove_component(event->ical->calendar, event->vevent);
 
+	for (i = 0; i < cal->nevents; ++i) {
+		if (&cal->events[i] == event) {
+			ind = i;
+			break;
+		}
+	}
 
+	assert(ind != -1);
+
+	memmove(&cal->events[ind], &cal->events[ind + 1], cal->nevents - ind - 1);
+	cal->nevents--;
+	cal->selected_event_ind = -1;
 }
 
 static void cancel_editing(struct cal *cal)
@@ -1040,7 +1053,7 @@ static void cancel_editing(struct cal *cal)
 		// we should have a selected event if we're cancelling
 		assert(event);
 
-		delete_event(event);
+		delete_event(cal, event);
 	}
 
 	cal->flags &= ~(CAL_CHANGING | CAL_INSERTING);

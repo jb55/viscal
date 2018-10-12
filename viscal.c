@@ -1025,8 +1025,8 @@ static void finish_editing(struct cal *cal)
 	// set summary of selected event
 	icalcomponent_set_summary(event->vevent, g_editbuf);
 
-	// leave edit mode
-	cal->flags &= ~CAL_CHANGING;
+	// leave edit mode, clear inserting flag
+	cal->flags &= ~(CAL_CHANGING | CAL_INSERTING);
 }
 
 static void append_str_edit_buffer(const char *src)

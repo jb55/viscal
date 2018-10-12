@@ -804,8 +804,6 @@ static void expand_selection_relative(struct cal *cal, int sign)
 {
 	int *step = &cal->timeblock_step;
 
-	printf("step %d\n", *step);
-
 	if (sign < 0 && cal->timeblock_size <= 15)
 		*step = 5;
 	else if (sign > 0 && cal->timeblock_size >= 15)
@@ -817,8 +815,6 @@ static void expand_selection_relative(struct cal *cal, int sign)
 		return;
 
 	cal->timeblock_size += amount;
-
-	printf("timeblock_size %d\n", cal->timeblock_size);
 }
 
 static void expand_selection(struct cal *cal)

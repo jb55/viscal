@@ -1103,6 +1103,21 @@ static void move_event(struct event *event, int minutes)
 	icalcomponent_set_dtend(event->vevent, et);
 }
 
+
+
+static void move_event_action(struct cal *cal, int direction)
+{
+	struct event *event =
+		get_selected_event(cal);
+
+	if (!event)
+		return;
+
+	move_event(event, direction * 15);
+}
+
+
+
 static void delete_event(struct cal *cal, struct event *event)
 {
 	int i, ind = -1;
@@ -1352,6 +1367,14 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		case 'g':
 			assert(cal->chord == 0);
 			cal->chord = 'g';
+			break;
+
+		case 'K':
+			move_event_action(cal, -1);
+			break;
+
+		case 'J':
+			move_event_action(cal, 1);
 			break;
 
 		case 'j':

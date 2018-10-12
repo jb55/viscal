@@ -726,9 +726,7 @@ static void select_up(struct cal *cal)
 
 static void move_now(struct cal *cal)
 {
-	time_t now = time(NULL);
-	cal->current =
-		closest_timeblock_for_timet(now, cal->timeblock_size);
+	select_closest_to_now(cal);
 }
 
 static void insert_event(struct cal *cal, time_t st, time_t et, struct ical *ical)
@@ -886,6 +884,7 @@ static int event_minutes(struct event *event)
 static void expand_selection_relative(struct cal *cal, int sign)
 {
 	int *step = &cal->timeblock_step;
+	int org_step = *step;
 
 	struct event *event =
 		get_selected_event(cal);
@@ -1086,13 +1085,16 @@ static void move_event(struct event *event, int minutes)
 	st = icalcomponent_get_dtstart(event->vevent);
 	et = icalcomponent_get_dtend(event->vevent);
 
-	if (abs(minutes) == 1) {
-		vevent_span_timet(event->vevent, &tst, &tet);
-		minutes = minutes * ((tet - tst) / 60);
-	}
+	/* if (abs(minutes) == 1) { */
+		/* vevent_span_timet(event->vevent, &tst, &tet); */
+		/* minutes = minutes * ((tet - tst) / 60); */
+	/* } */
 
-	if (abs(minutes) >= 30)
-		minutes = sgn(minutes) * 30;
+	// multiples of 5m
+	minutes *= 5;
+
+	/* if (abs(minutes) >= 30) */
+	/* 	minutes = sgn(minutes) * 30; */
 
 	add = icaldurationtype_from_int(minutes * 60);
 
@@ -1113,7 +1115,7 @@ static void move_event_action(struct cal *cal, int direction)
 	if (!event)
 		return;
 
-	move_event(event, direction);
+	move_event(event, direction * cal->repeat);
 }
 
 static void save_calendar(struct ical *calendar)
@@ -1308,6 +1310,11 @@ static void set_chord(struct cal *cal, char c)
 	cal->chord = c;
 }
 
+static void set_stepsize(struct cal *cal, int size)
+{
+	cal->timeblock_step = size;
+}
+
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
 {
 	struct extra_data *data = (struct extra_data*)user_data;
@@ -1352,6 +1359,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		int nkey = key - '0';
 
 		if (nkey >= 2 && nkey <= 9) {
+			printf("DEBUG repeat %d\n", nkey);
 			cal->repeat = nkey;
 			break;
 		}
@@ -1380,8 +1388,12 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			set_chord(cal, 'd');
 			break;
 
-		case 'S':
 		case 's':
+			set_stepsize(cal, cal->repeat * 5);
+			break;
+
+		case 'C':
+		case 'c':
 			edit_mode(cal, EDIT_CLEAR);
 			break;
 
@@ -1439,7 +1451,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 		}
 
-		cal->repeat = 1;
+		if (key != 0) {
+			printf("DEBUG resetting repeat\n");
+			cal->repeat = 1;
+		}
 
 		break;
 	default:

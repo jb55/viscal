@@ -12,6 +12,8 @@
 
 #define ARRAY_SIZE(array) (sizeof((array))/sizeof((array)[0]))
 
+#define sgn(x) (((x) > 0) - ((x) < 0))
+
 #define clamp(val, low, high) (val < low ? low : (val > high ? high : val))
 
 #define max(a,b)                                \
@@ -49,7 +51,7 @@ enum cal_flags {
     CAL_MDOWN      = 1 << 0
   , CAL_DRAGGING   = 1 << 1
   , CAL_SPLIT      = 1 << 2
-  , CAL_EDITING    = 1 << 3
+  , CAL_CHANGING   = 1 << 3
   , CAL_INSERTING  = 1 << 4
 };
 
@@ -100,6 +102,7 @@ struct cal {
 	// TODO: make multiple target selection
 	struct event *target;
 	int timeblock_size;
+	int timeblock_step;
 	int refresh_events;
 	int x, y, mx, my;
 	int gutter_height;
@@ -150,6 +153,7 @@ calendar_create(struct cal *cal) {
 	cal->target = NULL;
 	cal->chord = 0;
 	cal->gutter_height = 40;
+	cal->timeblock_step = 15;
 	cal->timeblock_size = 30;
 	cal->ncalendars = 0;
 	cal->nevents = 0;
@@ -314,7 +318,7 @@ static void edit_mode(struct cal *cal)
 	if (!event)
 		return;
 
-	cal->flags |= CAL_EDITING;
+	cal->flags |= CAL_CHANGING;
 
 	const char *summary =
 		icalcomponent_get_summary(event->vevent);
@@ -608,25 +612,6 @@ closest_timeblock(struct cal *cal, int y) {
 
 
 
-static void
-calendar_view_clicked(struct cal *cal, int mx, int my) {
-  time_t closest;
-  /* int y; */
-  char buf[32];
-
-  closest = closest_timeblock(cal, my);
-
-
-  format_locale_timet(buf, sizeof(buf), closest);
-  printf("(%d,%d) clicked @%s\n", mx, my, buf);
-  create_event(cal, closest, closest + cal->timeblock_size * 60,
-	       calendar_def_cal(cal));
-  // TODO: configurable default duration
-  /* icalcomponent_set_duration(vevent, duration); */
-
-  /* y = calendar_time_to_loc(cal, closest) * cal->height; */
-}
-
 static int
 event_hit (struct event *ev, double mx, double my) {
 	return
@@ -684,8 +669,13 @@ static void move_now(struct cal *cal)
 		closest_timeblock_for_timet(now, cal->timeblock_size);
 }
 
+static void insert_event(struct cal *cal, time_t st, time_t et, struct ical *ical)
+{
+	cal->flags |= CAL_INSERTING;
+	create_event(cal, st, et, ical->calendar);
+}
 
-static void insert_event(struct cal *cal)
+static void insert_event_cmd(struct cal *cal)
 {
 	// we should eventually always have a calendar
 	// at least a temporary one
@@ -695,10 +685,23 @@ static void insert_event(struct cal *cal)
 	time_t st = cal->current;
 	time_t et = cal->current + cal->timeblock_size * 60;
 
-	create_event(cal, st, et, current_calendar(cal)->calendar);
-
-	cal->flags |= CAL_INSERTING;
+	insert_event(cal, st, et, current_calendar(cal));
 }
+
+
+static void
+calendar_view_clicked(struct cal *cal, int mx, int my) {
+	time_t closest;
+	/* int y; */
+	char buf[32];
+
+	closest = closest_timeblock(cal, my);
+
+	format_locale_timet(buf, sizeof(buf), closest);
+	printf("DEBUG (%d,%d) clicked @%s\n", mx, my, buf);
+	insert_event_cmd(cal);
+}
+
 
 static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 		      time_t min_start, time_t max_end)
@@ -796,6 +799,38 @@ static void center_view(struct cal *cal)
 	cal->start_at = current_hour - cal->today - half_hours * 60 * 60;
 	cal->scroll = 0;
 }
+
+static void expand_selection_relative(struct cal *cal, int sign)
+{
+	int *step = &cal->timeblock_step;
+
+	printf("step %d\n", *step);
+
+	if (sign < 0 && cal->timeblock_size <= 15)
+		*step = 5;
+	else if (sign > 0 && cal->timeblock_size >= 15)
+		*step = 15;
+
+	int amount = *step * sign;
+
+	if (cal->timeblock_size + amount <= 0)
+		return;
+
+	cal->timeblock_size += amount;
+
+	printf("timeblock_size %d\n", cal->timeblock_size);
+}
+
+static void expand_selection(struct cal *cal)
+{
+	expand_selection_relative(cal, 1);
+}
+
+static void shrink_selection(struct cal *cal)
+{
+	expand_selection_relative(cal, -1);
+}
+
 
 static void select_down(struct cal *cal)
 {
@@ -895,9 +930,7 @@ static void open_below(struct cal *cal)
 
 	set_current_calendar(cal, ev->ical);
 
-	create_event(cal, et, push_to, ev->ical->calendar);
-
-	cal->flags |= CAL_INSERTING;
+	insert_event(cal, et, push_to, ev->ical);
 }
 
 static void finish_editing(struct cal *cal)
@@ -914,7 +947,7 @@ static void finish_editing(struct cal *cal)
 	icalcomponent_set_summary(event->vevent, g_editbuf);
 
 	// leave edit mode
-	cal->flags &= ~CAL_EDITING;
+	cal->flags &= ~CAL_CHANGING;
 }
 
 static void append_str_edit_buffer(const char *src)
@@ -955,7 +988,9 @@ static void pop_edit_buffer(int amount)
 
 static void delete_event(struct event *event)
 {
-	icalcomponent_remove_component(event->ical, event->vevent);
+	icalcomponent_remove_component(event->ical->calendar, event->vevent);
+
+
 }
 
 static void cancel_editing(struct cal *cal)
@@ -971,7 +1006,7 @@ static void cancel_editing(struct cal *cal)
 		delete_event(event);
 	}
 
-	cal->flags &= ~(CAL_EDITING | CAL_INSERTING);
+	cal->flags &= ~(CAL_CHANGING | CAL_INSERTING);
 }
 
 static void pop_word_edit_buffer()
@@ -1061,7 +1096,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:
-		if (cal->flags & CAL_EDITING) {
+		if (cal->flags & CAL_CHANGING) {
 			state_changed = on_edit_keypress(cal, &event->key);
 			debug_edit_buffer(&event->key);
 			goto check_state;
@@ -1105,7 +1140,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->scroll += scroll_amt;
 			break;
 
-		case 'e':
+		case 'c':
 			edit_mode(cal);
 			break;
 
@@ -1135,8 +1170,16 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->chord = 'z';
 			break;
 
+		case 'v':
+			expand_selection(cal);
+			break;
+
+		case 'V':
+			shrink_selection(cal);
+			break;
+
 		case 'i':
-			insert_event(cal);
+			insert_event_cmd(cal);
 			break;
 
 		case 'o':
@@ -1520,7 +1563,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev, struct event *sel) {
 	int isdate = dtstart.is_date;
 
 	int is_selected = sel == ev;
-	int is_editing = is_selected && (cal->flags & CAL_EDITING);
+	int is_editing = is_selected && (cal->flags & CAL_CHANGING);
 
 	time_t st, et;
 	vevent_span_timet(ev->vevent, &st, &et);

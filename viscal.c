@@ -62,9 +62,16 @@ union rgba {
   };
 };
 
+enum source {
+	SOURCE_CALDAV,
+	SOURCE_FILE
+};
+
 struct ical {
-  icalcomponent * calendar;
-  union rgba color;
+	icalcomponent * calendar;
+	enum source source;
+	const char *source_location;
+	union rgba color;
 };
 
 struct event {
@@ -1084,6 +1091,9 @@ static void move_event(struct event *event, int minutes)
 		minutes = minutes * ((tet - tst) / 60);
 	}
 
+	if (abs(minutes) >= 30)
+		minutes = sgn(minutes) * 30;
+
 	add = icaldurationtype_from_int(minutes * 60);
 
 	st = icaltime_add(st, add);
@@ -1106,7 +1116,28 @@ static void move_event_action(struct cal *cal, int direction)
 	move_event(event, direction);
 }
 
+static void save_calendar(struct ical *calendar)
+{
+	// TODO: caldav saving
+	assert(calendar->source == SOURCE_FILE);
+	printf("DEBUG saving %s\n", calendar->source_location);
 
+	const char *str =
+		icalcomponent_as_ical_string_r(calendar->calendar);
+
+	FILE *fd = fopen(calendar->source_location, "w+");
+
+	fwrite(str, strlen(str), 1, fd);
+
+	fclose(fd);
+}
+
+static void save_calendars(struct cal *cal)
+{
+	printf("DEBUG saving calendars\n");
+	for (int i = 0; i < cal->ncalendars; ++i)
+		save_calendar(&cal->calendars[i]);
+}
 
 static void delete_event(struct cal *cal, struct event *event)
 {
@@ -1338,6 +1369,12 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		case 0x15:
 			cal->scroll -= scroll_amt;
 			break;
+
+			// Ctrl-u
+		case 0x13:
+			save_calendars(cal);
+			break;
+
 
 		case 'd':
 			set_chord(cal, 'd');
@@ -2061,6 +2098,8 @@ int main(int argc, char *argv[])
 	for (int i = 1; i < argc; i++) {
 		printf("loading calendar %s\n", argv[i]);
 		ical = calendar_load_ical(&cal, argv[i]);
+		ical->source = SOURCE_FILE;
+		ical->source_location = argv[i];
 
 		// TODO: configure colors from cli?
 		if (ical != NULL) {

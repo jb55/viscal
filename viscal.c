@@ -95,12 +95,12 @@ struct cal {
 	int repeat;
 
 	icalcomponent *select_after_sort;
+	// TODO: make multiple target selection
+	int target;
 	int selected_event_ind;
 	int selected_calendar_ind;
 
 	enum cal_flags flags;
-	// TODO: make multiple target selection
-	struct event *target;
 	int timeblock_size;
 	int timeblock_step;
 	int refresh_events;
@@ -116,6 +116,27 @@ struct cal {
 };
 
 typedef void (chord_cmd)(struct cal *);
+
+struct chord {
+	char *keys;
+	chord_cmd *cmd;
+};
+
+static void center_view(struct cal *);
+static void zoom_in(struct cal *);
+static void zoom_out(struct cal *);
+static void select_down(struct cal *);
+static void select_up(struct cal *);
+static void delete_timeblock(struct cal *);
+
+static struct chord chords[] = {
+	{ "zz", center_view },
+	{ "zi", zoom_in },
+	{ "zo", zoom_out },
+	{ "gj", select_down },
+	{ "gk", select_up },
+	{ "dd", delete_timeblock },
+};
 
 struct extra_data {
   GtkWindow *win;
@@ -150,11 +171,12 @@ calendar_create(struct cal *cal) {
 	cal->selected_calendar_ind = 0;
 	cal->selected_event_ind = -1;
 	cal->select_after_sort = NULL;
-	cal->target = NULL;
+	cal->target = -1;
 	cal->chord = 0;
 	cal->gutter_height = 40;
 	cal->timeblock_step = 15;
 	cal->timeblock_size = 30;
+	cal->flags = 0;
 	cal->ncalendars = 0;
 	cal->nevents = 0;
 	cal->start_at = nowh - today - 4*60*60;
@@ -207,11 +229,17 @@ span_overlaps(time_t start1, time_t end1, time_t start2, time_t end2) {
 
 static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 {
-	icaltimetype dtstart = icalcomponent_get_dtstart(vevent);
-	icaltimetype dtend = icalcomponent_get_dtend(vevent);
+	icaltimetype dtstart, dtend;
 
-	*st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
-	*et = icaltime_as_timet_with_zone(dtend, dtend.zone);
+	if (st) {
+		dtstart = icalcomponent_get_dtstart(vevent);
+		*st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+	}
+
+	if (et) {
+		dtend = icalcomponent_get_dtend(vevent);
+		*et = icaltime_as_timet_with_zone(dtend, dtend.zone);
+	}
 }
 
 /* static int */
@@ -250,27 +278,55 @@ static time_t get_vevent_start(icalcomponent *vevent)
 	return icaltime_as_timet_with_zone(dtstart, dtstart.zone);
 }
 
+static int first_event_starting_at(struct cal *cal, time_t starting_at)
+{
+	time_t st;
 
-static int find_event_closest_to(struct cal *cal, time_t target)
+	if (cal->nevents == 0)
+		return -1;
+
+	for (int i = cal->nevents - 1; i >= 0; i--) {
+		vevent_span_timet(cal->events[i].vevent, &st, NULL);
+
+		if (st >= starting_at)
+			continue;
+		else if (i == cal->nevents - 1)
+			return -1;
+
+		return i + 1;
+	}
+
+	assert(!"unpossible");
+}
+
+// seconds_range = 0 implies: do something reasonable (DAY_SECONDS/4)
+static int find_event_within(struct cal *cal, time_t target, int seconds_range)
 {
 	struct event *ev;
 	time_t evtime, diff, prev;
+
+	if (seconds_range == 0)
+		seconds_range = DAY_SECONDS/4;
 
 	prev = target;
 
 	if (cal->nevents == 0)
 		return -1;
+
 	else if (cal->nevents == 1)
 		return 0;
 
 	for (int i = cal->nevents-1; i >= 0; i--) {
+
 		ev = &cal->events[i];
-		evtime = get_vevent_start(ev->vevent);
+		vevent_span_timet(ev->vevent, &evtime, NULL);
 
 		diff = abs(target - evtime);
 
 		if (diff > prev) {
-			printf("selecting %d\n", i);
+			printf("selecting %d diff (%d)\n", i, diff);
+			if (prev > seconds_range)
+				return -1;
 			return i+1;
 		}
 
@@ -283,7 +339,7 @@ static int find_event_closest_to(struct cal *cal, time_t target)
 static void select_closest_to_now(struct cal *cal)
 {
 	time_t now = time(NULL);
-	cal->selected_event_ind = find_event_closest_to(cal, now);
+	cal->selected_event_ind = find_event_within(cal, now, 0);
 }
 
 
@@ -478,10 +534,17 @@ calendar_load_ical(struct cal *cal, char *path) {
 /* } */
 
 
+static struct event *get_target(struct cal *cal) {
+	if (cal->target == -1)
+		return NULL;
+
+	return &cal->events[cal->target];
+}
+
 
 static void
 calendar_drop(struct cal *cal, double mx, double my) {
-	struct event *ev = cal->target;
+	struct event *ev = get_target(cal);
 
 	if (!ev)
 		return;
@@ -629,14 +692,14 @@ event_hit (struct event *ev, double mx, double my) {
 }
 
 
-static struct event* events_hit (struct event *events, int nevents,
+static int events_hit (struct event *events, int nevents,
 				 double mx, double my)
 {
 	for (int i = 0; i < nevents; ++i) {
 		if (event_hit(&events[i], mx, my))
-			return &events[i];
+			return i;
 	}
-	return NULL;
+	return -1;
 }
 
 static void zoom(struct cal *cal, double amt)
@@ -658,7 +721,7 @@ static inline int relative_selection(struct cal *cal, int rel)
 {
 	/* if (cal->selected_event_ind == -1) { */
 	/* 	// TODO: bias direction */
-	/* 	return find_event_closest_to(cal, cal->current); */
+	/* 	return find_event_within(cal, cal->current); */
 	/* } */
 
 	return clamp(cal->selected_event_ind + rel, 0, cal->nevents - 1);
@@ -682,7 +745,7 @@ static void insert_event(struct cal *cal, time_t st, time_t et, struct ical *ica
 	create_event(cal, st, et, ical->calendar);
 }
 
-static void insert_event_cmd(struct cal *cal)
+static void insert_event_action(struct cal *cal)
 {
 	// we should eventually always have a calendar
 	// at least a temporary one
@@ -706,7 +769,7 @@ calendar_view_clicked(struct cal *cal, int mx, int my) {
 
 	format_locale_timet(buf, sizeof(buf), closest);
 	printf("DEBUG (%d,%d) clicked @%s\n", mx, my, buf);
-	insert_event_cmd(cal);
+	insert_event_action(cal);
 }
 
 
@@ -877,11 +940,6 @@ static void select_down(struct cal *cal)
 }
 
 
-struct chord {
-	char *keys;
-	chord_cmd *cmd;
-};
-
 // TODO: make zoom_amt configurable
 static const int zoom_amt = 1.5;
 
@@ -894,14 +952,6 @@ static void zoom_out(struct cal *cal) {
 	for (int i=0; i < cal->repeat; i++)
 		zoom(cal, zoom_amt);
 }
-
-static struct chord chords[] = {
-	{ "zz", center_view },
-	{ "zi", zoom_in },
-	{ "zo", zoom_out },
-	{ "gj", select_down },
-	{ "gk", select_up },
-};
 
 static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 {
@@ -1024,12 +1074,43 @@ static void pop_edit_buffer(int amount)
 	g_editbuf_pos = top;
 }
 
+static time_t get_selection_end(struct cal *cal)
+{
+	return cal->current + cal->timeblock_size * 60;
+}
+
+static int event_is_today(time_t today, struct event *event)
+{
+	time_t st;
+	vevent_span_timet(event->vevent, &st, NULL);
+	return st < today + DAY_SECONDS;
+}
+
+static void move_event(struct event *event, int minutes)
+{
+	icaltimetype st, et;
+
+	struct icaldurationtype add =
+		icaldurationtype_from_int(minutes * 60);
+
+	st = icalcomponent_get_dtstart(event->vevent);
+	et = icalcomponent_get_dtend(event->vevent);
+
+	st = icaltime_add(st, add);
+	et = icaltime_add(et, add);
+
+	icalcomponent_set_dtstart(event->vevent, st);
+	icalcomponent_set_dtend(event->vevent, et);
+}
+
 static void delete_event(struct cal *cal, struct event *event)
 {
 	int i, ind = -1;
+	time_t st;
+	vevent_span_timet(event->vevent, &st, NULL);
 	icalcomponent_remove_component(event->ical->calendar, event->vevent);
 
-	for (i = 0; i < cal->nevents; ++i) {
+	for (i = cal->nevents - 1; i >= 0; i--) {
 		if (&cal->events[i] == event) {
 			ind = i;
 			break;
@@ -1038,9 +1119,57 @@ static void delete_event(struct cal *cal, struct event *event)
 
 	assert(ind != -1);
 
-	memmove(&cal->events[ind], &cal->events[ind + 1], cal->nevents - ind - 1);
+	memmove(&cal->events[ind],
+		&cal->events[ind + 1],
+		(cal->nevents - ind - 1) * sizeof(*cal->events));
+
+	// adjust indices
 	cal->nevents--;
-	cal->selected_event_ind = -1;
+	cal->selected_event_ind = find_event_within(cal, st, 0);
+	cal->target--;
+}
+
+
+// delete the event, and then pull everything below upwards (within that day)
+static void delete_timeblock(struct cal *cal)
+{
+	int first;
+	struct event *event =
+		get_selected_event(cal);
+
+	if (event)
+		delete_event(cal, event);
+
+	// get all events in current day past dtend of current selection
+	time_t starting_at =
+		get_selection_end(cal);
+
+	first =
+		first_event_starting_at(cal, starting_at);
+
+	// nothing to push down today
+	if (first == -1) 
+		return;
+
+	for (int i = first;
+	     i < cal->nevents && event_is_today(cal->today, &cal->events[i]);
+	     i++) {
+		struct event *event = &cal->events[i];
+		move_event(event, -cal->timeblock_size);
+	}
+
+}
+
+
+static void delete_event_action(struct cal *cal)
+{
+	struct event *event =
+		get_selected_event(cal);
+
+	if (event == NULL)
+		return;
+
+	delete_event(cal, event);
 }
 
 static void cancel_editing(struct cal *cal)
@@ -1184,10 +1313,18 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 		}
 
+		printf("keystring %x\n", *event->key.string);
+
 		switch (key) {
 
-		case 'd':
+		// Ctrl-d
+		case 0x4:
 			cal->scroll += scroll_amt;
+			break;
+
+		case 'd':
+			assert(cal->chord == 0);
+			cal->chord = 'd';
 			break;
 
 		case 'S':
@@ -1198,6 +1335,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		case 'A':
 		case 'a':
 			edit_mode(cal, 0);
+			break;
+
+		case 'x':
+			delete_event_action(cal);
 			break;
 
 		case 't':
@@ -1235,7 +1376,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 
 		case 'i':
-			insert_event_cmd(cal);
+			insert_event_action(cal);
 			break;
 
 		case 'o':
@@ -1262,6 +1403,7 @@ static int
 on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
+	struct event *target = NULL;
 	double mx = ev->x;
 	double my = ev->y;
 	int state_changed = 1;
@@ -1270,12 +1412,15 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 	case GDK_BUTTON_PRESS:
 		cal->flags |= CAL_MDOWN;
 		cal->target = events_hit(cal->events, cal->nevents, mx, my);
-		if (cal->target) {
-			cal->target->dragy_off = cal->target->y - my;
-			cal->target->dragx_off = cal->target->x - mx;
+		target = get_target(cal);
+		if (target) {
+			target->dragy_off = target->y - my;
+			target->dragx_off = target->x - mx;
 		}
 		break;
 	case GDK_BUTTON_RELEASE:
+		target = get_target(cal);
+
 		if ((cal->flags & CAL_DRAGGING) != 0) {
 			// finished drag
 			// TODO: handle drop into and out of gutter
@@ -1283,8 +1428,8 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 		}
 		else {
 			// clicked target
-			if (cal->target)
-				event_click(cal, cal->target, mx, my);
+			if (target)
+				event_click(cal, target, mx, my);
 			else if (my < cal->y) {
 				// TODO: gutter clicked, create date event + increase gutter size
 			}
@@ -1297,12 +1442,12 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 		cal->flags &= ~(CAL_MDOWN | CAL_DRAGGING);
 
 		// clear target drag state
-		if (cal->target) {
-			cal->target->dragx = 0.0;
-			cal->target->dragy = 0.0;
-			cal->target->drag_time =
-				icaltime_as_timet(icalcomponent_get_dtstart(cal->target->vevent));
-			cal->target = NULL;
+		if (target) {
+			target->dragx = 0.0;
+			target->dragy = 0.0;
+			target->drag_time =
+				icaltime_as_timet(icalcomponent_get_dtstart(target->vevent));
+			target = NULL;
 		}
 		break;
 
@@ -1363,6 +1508,8 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 	static struct event* prev_hit = NULL;
 
 	struct event *hit = NULL;
+	struct event *target = NULL;
+
 	int state_changed = 0;
 	int dragging_event = 0;
 	double mx = ev->x;
@@ -1385,11 +1532,12 @@ on_motion(GtkWidget *widget, GdkEventMotion *ev, gpointer user_data) {
 
 		// dragging logic
 	if ((cal->flags & CAL_DRAGGING) != 0) {
-		if (cal->target) {
+		target = get_target(cal);
+		if (target) {
 			dragging_event = 1;
-			cal->target->dragx = px - cal->target->x;
-			cal->target->dragy =
-				cal->target->dragy_off + py - cal->target->y - cal->y;
+			target->dragx = px - target->x;
+			target->dragy =
+				target->dragy_off + py - target->y - cal->y;
 		}
 	}
 
@@ -1601,16 +1749,17 @@ static void saturate(union rgba *c, double change)
 }
 
 static void
-draw_event (cairo_t *cr, struct cal *cal, struct event *ev, struct event *sel) {
+draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
+	    struct event *sel, struct event *target) {
 	// double height = Math.fmin(, MIN_EVENT_HEIGHT);
 	// stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
 	// 			  sloc, eloc, dloc, eheight);
 	static char bsmall[32] = {0};
 	static char bsmall2[32] = {0};
 	static char buffer[1024] = {0};
-
 	union rgba c = ev->ical->color;
-	int is_dragging = cal->target == ev && (cal->flags & CAL_DRAGGING);
+
+	int is_dragging = target == ev && (cal->flags & CAL_DRAGGING);
 	double evheight = max(1.0, ev->height - EVMARGIN);
 	/* double evwidth = ev->width; */
 	/* icaltimezone *tz = icalcomponent_get_timezone(ev->vevent, "UTC"); */
@@ -1651,7 +1800,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev, struct event *sel) {
 		y += ev->dragy;
 		st = closest_timeblock(cal, y);
 		y = calendar_time_to_loc_absolute(cal, st);
-		cal->target->drag_time = st;
+		target->drag_time = st;
 	}
 
 	/* y -= EVMARGIN; */
@@ -1774,7 +1923,7 @@ draw_selection (cairo_t *cr, struct cal *cal)
 {
 	double sx = cal->x;
 	double sy = calendar_time_to_loc_absolute(cal, cal->current);
-	time_t et = cal->current + cal->timeblock_size * 60;
+	time_t et = get_selection_end(cal);
 	double height = calendar_time_to_loc_absolute(cal, et) - sy;
 
 	cairo_move_to(cr, sx, sy);
@@ -1801,7 +1950,7 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	// draw calendar events
 	for (i = 0; i < cal->nevents; ++i) {
 		struct event *ev = &cal->events[i];
-		draw_event(cr, cal, ev, selected);
+		draw_event(cr, cal, ev, selected, get_target(cal));
 	}
 
 	if (cal->selected_event_ind == -1)

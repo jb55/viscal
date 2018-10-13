@@ -174,7 +174,7 @@ calendar_create(struct cal *cal) {
 	struct tm nowtm;
 
 	now = time(NULL);
-	nowtm = *gmtime(&now);
+	nowtm = *localtime(&now);
 	nowtm.tm_min = 0;
 	nowh = mktime(&nowtm);
 	nowtm.tm_hour = 0;
@@ -666,7 +666,7 @@ static icalcomponent *calendar_def_cal(struct cal *cal) {
 
 static time_t closest_timeblock_for_timet(time_t st, int timeblock_size) {
 	struct tm lt;
-	lt = *gmtime(&st);
+	lt = *localtime(&st);
 	lt.tm_min = round(lt.tm_min / timeblock_size) * timeblock_size;
 	lt.tm_sec = 0; // removes jitter
 	return mktime(&lt);

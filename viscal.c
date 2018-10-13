@@ -131,6 +131,8 @@ struct chord {
 };
 
 static void center_view(struct cal *);
+static void top_view(struct cal *);
+static void bottom_view(struct cal *);
 static void zoom_in(struct cal *);
 static void zoom_out(struct cal *);
 static void select_down(struct cal *);
@@ -139,6 +141,8 @@ static void delete_timeblock(struct cal *);
 
 static struct chord chords[] = {
 	{ "zz", center_view },
+	{ "zt", top_view },
+	{ "zb", bottom_view },
 	{ "zi", zoom_in },
 	{ "zo", zoom_out },
 	{ "gj", select_down },
@@ -858,23 +862,37 @@ static int number_of_hours_in_view(struct cal *cal)
 	return (et - st) / 60 / 60;
 }
 
-static void center_view(struct cal *cal)
+
+static void relative_view(struct cal *cal, int hours)
 {
-	static char buf[128];
 	time_t current_hour;
 	struct tm current_tm;
 
-	current_tm = *gmtime(&cal->current);
+	// currently needed because the grid is hour-aligned
+	current_tm = *localtime(&cal->current);
 	current_tm.tm_min = 0;
 	current_hour = mktime(&current_tm);
 
-	int hours = number_of_hours_in_view(cal);
-	cal->start_at = current_hour - cal->today - hours * 60 * 60;
-
-	format_locale_timet(buf, 128, cal->start_at);
-	printf("DEBUG centering at %s\n", buf);
-
+	// zt -> cal->current - cal->today
+	cal->start_at = current_hour - cal->today - (hours * 60 * 60);
 	cal->scroll = 0;
+}
+
+
+static void top_view(struct cal *cal)
+{
+	relative_view(cal, 0);
+}
+
+static void bottom_view(struct cal *cal)
+{
+	relative_view(cal, number_of_hours_in_view(cal) - 1);
+}
+
+static void center_view(struct cal *cal)
+{
+	int half_hours = number_of_hours_in_view(cal) / 2;
+	relative_view(cal, half_hours);
 }
 
 static void expand_event(struct event *event, int minutes)
@@ -1382,7 +1400,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 		}
 
-		printf("DEBUG keystring %x\n", *event->key.string);
+		/* printf("DEBUG keystring %x\n", *event->key.string); */
 
 		switch (key) {
 
@@ -1468,7 +1486,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		}
 
 		if (key != 0) {
-			printf("DEBUG resetting repeat\n");
+			/* printf("DEBUG resetting repeat\n"); */
 			cal->repeat = 1;
 		}
 

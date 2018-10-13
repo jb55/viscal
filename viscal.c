@@ -1147,6 +1147,13 @@ static void save_calendars(struct cal *cal)
 		save_calendar(&cal->calendars[i]);
 }
 
+static int closest_to_current(struct cal *cal, int ind_hint)
+{
+	int timeblock = timeblock_size(cal);
+	return query_span(cal, ind_hint-1 < 0 ? 0 : ind_hint-1, cal->current,
+			  cal->current + timeblock * 60, 0, 0);
+}
+
 static void delete_event(struct cal *cal, struct event *event)
 {
 	int i, ind = -1;
@@ -1169,8 +1176,7 @@ static void delete_event(struct cal *cal, struct event *event)
 
 	// adjust indices
 	cal->nevents--;
-	/* cal->selected_event_ind = find_event_within(cal, st, 0); */
-	cal->selected_event_ind = -1;
+	cal->selected_event_ind = closest_to_current(cal, 0);
 	cal->target--;
 }
 
@@ -1178,6 +1184,9 @@ static void delete_event(struct cal *cal, struct event *event)
 static void delete_timeblock(struct cal *cal)
 {
 	int first;
+	int i;
+	int timeblock = timeblock_size(cal);
+
 	struct event *event =
 		get_selected_event(cal);
 
@@ -1195,13 +1204,14 @@ static void delete_timeblock(struct cal *cal)
 	if (first == -1)
 		return;
 
-	for (int i = first;
+	for (i = first;
 	     i < cal->nevents && event_is_today(cal->today, &cal->events[i]);
 	     i++) {
 		struct event *event = &cal->events[i];
-		move_event(event, -timeblock_size(cal));
+		move_event(event, -timeblock);
 	}
 
+	cal->selected_event_ind = closest_to_current(cal, first);
 }
 
 

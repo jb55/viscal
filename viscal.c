@@ -708,6 +708,25 @@ static void zoom(struct cal *cal, double amt)
 	cal->zoom_at = cal->my;
 }
 
+static int event_minutes(struct event *event)
+{
+	time_t st, et;
+	vevent_span_timet(event->vevent, &st, &et);
+	return (et - st) / 60;
+}
+
+
+static int timeblock_size(struct cal *cal)
+{
+	if (cal->selected_event_ind != -1) {
+		struct event *ev = get_selected_event(cal);
+		return event_minutes(ev);
+	}
+
+	return cal->timeblock_size;
+}
+
+
 static inline int relative_selection(struct cal *cal, int rel)
 {
 	/* if (cal->selected_event_ind == -1) { */
@@ -789,17 +808,13 @@ static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 	return -1;
 }
 
-static int timeblock_seconds(struct cal *cal) {
-	return cal->timeblock_size * 60;
-}
-
 // TODO comebine parts with move_event?
 static void move_relative(struct cal *cal, int rel)
 {
 	time_t st;
 	time_t et;
 	int hit;
-	int timeblock = timeblock_seconds(cal);
+	int timeblock = cal->timeblock_size * 60;
 
 	// no current event selection
 	if (cal->selected_event_ind == -1)  {
@@ -874,25 +889,19 @@ static void expand_event(struct event *event, int minutes)
 	// TODO: push down
 }
 
-static int event_minutes(struct event *event)
-{
-	time_t st, et;
-	vevent_span_timet(event->vevent, &st, &et);
-	return (et - st) / 60;
-}
-
 static void expand_selection_relative(struct cal *cal, int sign)
 {
 	int *step = &cal->timeblock_step;
+	*step = 5;
 
-	struct event *event =
-		get_selected_event(cal);
+	struct event *event = get_selected_event(cal);
 
-	int size =
-		event == NULL ? cal->timeblock_size : event_minutes(event);
+	int size = timeblock_size(cal);
 
-	if (sign < 0 && size <= 15)
-		*step = 5;
+	/* *step = min(*step, size); */
+
+	/* if (sign < 0 && size <= 15) */
+	/* 	*step = 5; */
 	/* else if (sign > 0 && size >= 15) */
 	/* 	*step = 15; */
 
@@ -941,6 +950,7 @@ static void zoom_out(struct cal *cal) {
 	for (int i=0; i < cal->repeat; i++)
 		zoom(cal, zoom_amt);
 }
+
 
 static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 {
@@ -991,7 +1001,7 @@ static void open_below(struct cal *cal)
 
 	vevent_span_timet(ev->vevent, &st, &et);
 
-	push_to = et + cal->timeblock_size * 60;
+	push_to = et + timeblock_size(cal) * 60;
 
 	// push down all nearby events
 	// TODO: filter on visible calendars
@@ -1089,9 +1099,6 @@ static void move_event(struct event *event, int minutes)
 		/* minutes = minutes * ((tet - tst) / 60); */
 	/* } */
 
-	// multiples of 5m
-	minutes *= 5;
-
 	/* if (abs(minutes) >= 30) */
 	/* 	minutes = sgn(minutes) * 30; */
 
@@ -1114,7 +1121,7 @@ static void move_event_action(struct cal *cal, int direction)
 	if (!event)
 		return;
 
-	move_event(event, direction * cal->repeat);
+	move_event(event, direction * cal->repeat * 5);
 }
 
 static void save_calendar(struct ical *calendar)
@@ -1167,7 +1174,6 @@ static void delete_event(struct cal *cal, struct event *event)
 	cal->target--;
 }
 
-
 // delete the event, and then pull everything below upwards (within that day)
 static void delete_timeblock(struct cal *cal)
 {
@@ -1193,7 +1199,7 @@ static void delete_timeblock(struct cal *cal)
 	     i < cal->nevents && event_is_today(cal->today, &cal->events[i]);
 	     i++) {
 		struct event *event = &cal->events[i];
-		move_event(event, -cal->timeblock_size);
+		move_event(event, -timeblock_size(cal));
 	}
 
 }
@@ -2018,7 +2024,7 @@ draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
 static void
 draw_selection (cairo_t *cr, struct cal *cal)
 {
-	static const char *summary = "";
+	static const char *summary = "Selection";
 	static const int is_selected = 0;
 	static const int is_date = 0;
 	double sx = cal->x;

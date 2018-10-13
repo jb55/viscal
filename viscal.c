@@ -31,6 +31,7 @@
 // TODO: heap-realloc events array
 #define MAX_EVENTS 1024
 
+static icaltimezone *tz_utc;
 static const double BGCOLOR = 0.35;
 static const int DAY_SECONDS = 86400;
 static const int TXTPAD = 11;
@@ -169,7 +170,7 @@ calendar_create(struct cal *cal) {
 	struct tm nowtm;
 
 	now = time(NULL);
-	nowtm = *localtime(&now);
+	nowtm = *gmtime(&now);
 	nowtm.tm_min = 0;
 	nowh = mktime(&nowtm);
 	nowtm.tm_hour = 0;
@@ -240,12 +241,12 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 
 	if (st) {
 		dtstart = icalcomponent_get_dtstart(vevent);
-		*st = icaltime_as_timet_with_zone(dtstart, dtstart.zone);
+		*st = icaltime_as_timet_with_zone(dtstart, NULL);
 	}
 
 	if (et) {
 		dtend = icalcomponent_get_dtend(vevent);
-		*et = icaltime_as_timet_with_zone(dtend, dtend.zone);
+		*et = icaltime_as_timet_with_zone(dtend, NULL);
 	}
 }
 
@@ -635,8 +636,8 @@ static icalcomponent *create_event(struct cal *cal, time_t start, time_t end,
 				   icalcomponent *ical) {
 	static const char *default_event_summary = "";
 	icalcomponent *vevent;
-	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, NULL);
-	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, NULL);
+	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, tz_utc);
+	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, tz_utc);
 
 	vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
@@ -661,7 +662,7 @@ static icalcomponent *calendar_def_cal(struct cal *cal) {
 
 static time_t closest_timeblock_for_timet(time_t st, int timeblock_size) {
 	struct tm lt;
-	lt = *localtime(&st);
+	lt = *gmtime(&st);
 	lt.tm_min = round(lt.tm_min / timeblock_size) * timeblock_size;
 	lt.tm_sec = 0; // removes jitter
 	return mktime(&lt);
@@ -862,7 +863,7 @@ static void center_view(struct cal *cal)
 	time_t current_hour;
 	struct tm current_tm;
 
-	current_tm = *localtime(&cal->current);
+	current_tm = *gmtime(&cal->current);
 	current_tm.tm_min = 0;
 	current_hour = mktime(&current_tm);
 
@@ -2180,6 +2181,7 @@ int main(int argc, char *argv[])
 
 	// TODO: get system timezone
 	cal.tz = icaltimezone_get_builtin_timezone("America/Vancouver");
+	tz_utc = icaltimezone_get_builtin_timezone("UTC");
 
 	g_text_color.r = text_col;
 	g_text_color.g = text_col;

@@ -626,8 +626,7 @@ static char *format_locale_time(char *buffer, int bsize, struct tm *tm) {
 static char *format_locale_timet(char *buffer, int bsize, time_t time) {
 	struct tm lt;
 	lt = *localtime(&time);
-	format_locale_time(buffer, bsize, &lt);
-	return buffer;
+	return format_locale_time(buffer, bsize, &lt);
 }
 
 
@@ -794,6 +793,7 @@ static int timeblock_seconds(struct cal *cal) {
 	return cal->timeblock_size * 60;
 }
 
+// TODO comebine parts with move_event?
 static void move_relative(struct cal *cal, int rel)
 {
 	time_t st;
@@ -884,7 +884,6 @@ static int event_minutes(struct event *event)
 static void expand_selection_relative(struct cal *cal, int sign)
 {
 	int *step = &cal->timeblock_step;
-	int org_step = *step;
 
 	struct event *event =
 		get_selected_event(cal);
@@ -894,8 +893,8 @@ static void expand_selection_relative(struct cal *cal, int sign)
 
 	if (sign < 0 && size <= 15)
 		*step = 5;
-	else if (sign > 0 && size >= 15)
-		*step = 15;
+	/* else if (sign > 0 && size >= 15) */
+	/* 	*step = 15; */
 
 	int minutes = *step * sign;
 
@@ -1078,7 +1077,7 @@ static int event_is_today(time_t today, struct event *event)
 
 static void move_event(struct event *event, int minutes)
 {
-	time_t tst, tet;
+	/* time_t tst, tet; */
 	icaltimetype st, et;
 	struct icaldurationtype add;
 
@@ -1187,7 +1186,7 @@ static void delete_timeblock(struct cal *cal)
 		first_event_starting_at(cal, starting_at);
 
 	// nothing to push down today
-	if (first == -1) 
+	if (first == -1)
 		return;
 
 	for (int i = first;
@@ -1822,47 +1821,142 @@ static void saturate(union rgba *c, double change)
 	c->b = P+((c->b)-P)*change;
 }
 
+static double get_evheight(double evheight)
+{
+	return max(1.0, evheight - EVMARGIN);
+}
+
 static void
-draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
-	    struct event *sel, struct event *target) {
-	// double height = Math.fmin(, MIN_EVENT_HEIGHT);
-	// stdout.printf("sloc %f eloc %f dloc %f eheight %f\n",
-	// 			  sloc, eloc, dloc, eheight);
+draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
+		   int is_date, int is_selected, double height, const char *summary,
+		   struct event *sel, double x, double y)
+{
+	// TODO: event text color
+	static char buffer[1024] = {0};
+	static const double txtc = 0.2;
 	static char bsmall[32] = {0};
 	static char bsmall2[32] = {0};
-	static char buffer[1024] = {0};
+	char *start_time;
+	char *end_time;
+	time_t len = et - st;
+
+	cairo_text_extents_t exts;
+
+	int is_editing = is_selected && (cal->flags & CAL_CHANGING);
+
+	summary = is_editing ? g_editbuf : summary;
+
+	cairo_set_source_rgb(cr, txtc, txtc, txtc);
+	if (is_date) {
+		sprintf(buffer, is_selected ? "'%s'" : "%s", summary);
+		cairo_text_extents(cr, buffer, &exts);
+		cairo_move_to(cr, x + EVPAD, y + (height / 2.0)
+						+ ((double)exts.height / 2.0));
+		cairo_show_text(cr, buffer);
+	}
+	/* else if (len > 30*60) { */
+	/*   format_locale_timet(bsmall, 32, st); */
+	/*   format_locale_timet(bsmall2, 32, et); */
+	/*   sprintf(buffer, "%s — %s", bsmall, bsmall2); */
+	/*   cairo_show_text(cr, buffer); */
+	/*   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD * 2); */
+	/*   cairo_show_text(cr, summary); */
+	/* } */
+	else {
+		start_time = format_locale_timet(bsmall, 32, st);
+		end_time   = format_locale_timet(bsmall2, 32, et);
+		// TODO: configurable event format
+		char duration_format[32] = {0};
+		char duration_format_in[32] = {0};
+		char duration_format_out[32] = {0};
+		time_t now, in, out;
+		time(&now);
+
+		in = now - st;
+		out = et - now;
+
+		format_time_duration(duration_format,
+				     sizeof(duration_format), len);
+
+		format_time_duration(duration_format_in,
+				     sizeof(duration_format), in);
+
+		format_time_duration(duration_format_out,
+				     sizeof(duration_format), out);
+
+		if (out >= 0 && in >= 0 && out < len) {
+			const char *fmt =
+				is_editing
+				?  "'%s' | %s to %s | %s | %s in | %s left"
+				:  "%s | %s to %s | %s | %s in | %s left";
+
+				sprintf(buffer,
+					fmt,
+					summary,
+					start_time,
+					end_time,
+					duration_format,
+					duration_format_in,
+					duration_format_out
+					);
+		}
+		else if (in >= 0 && in < 0) {
+			const char *fmt =
+				is_editing
+				?  "'%s' | %s to %s | %s | %s in"
+				:  "%s | %s to %s | %s | %s in";
+
+			sprintf(buffer, fmt,
+				summary,
+				start_time,
+				end_time,
+				duration_format,
+				duration_format_in
+				);
+		}
+		else {
+			const char *fmt =
+				is_editing
+				? "'%s' | %s to %s | %s"
+				: "%s | %s to %s | %s";
+
+			sprintf(buffer,
+				fmt,
+				summary,
+				start_time,
+				end_time,
+				duration_format);
+		}
+
+		cairo_text_extents(cr, buffer, &exts);
+		double ey = height < exts.height
+			? y + TXTPAD - EVPAD
+			: y + TXTPAD + EVPAD;
+		cairo_move_to(cr, x + EVPAD, ey);
+		cairo_show_text(cr, buffer);
+	}
+}
+
+static void
+draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
+	    struct event *sel, struct event *target)
+{
 	union rgba c = ev->ical->color;
 
 	int is_dragging = target == ev && (cal->flags & CAL_DRAGGING);
-	double evheight = max(1.0, ev->height - EVMARGIN);
-	/* double evwidth = ev->width; */
-	/* icaltimezone *tz = icalcomponent_get_timezone(ev->vevent, "UTC"); */
-	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
-	/* icaltimetype dtend = icalcomponent_get_dtend(ev->vevent); */
-	int isdate = dtstart.is_date;
-
 	int is_selected = sel == ev;
-	int is_editing = is_selected && (cal->flags & CAL_CHANGING);
+	icaltimetype dtstart =
+		icalcomponent_get_dtstart(ev->vevent);
 
 	time_t st, et;
 	vevent_span_timet(ev->vevent, &st, &et);
 
 	double x = ev->x;
-	// TODO: date-event stacking
 	double y = ev->y;
+	double evheight = get_evheight(ev->height);
 
-	/* printf("utc? %s dstart hour %d min %d\n", */
-	/*        dtstart.is_utc? "yes" : "no", */
-	/*        dtstart.hour, */
-	/*        dtstart.minute); */
-
-	time_t len = et - st;
-	cairo_text_extents_t exts;
-
-	// TODO: we may not be editing the summary
-	const char * const summary =
-		is_editing ? g_editbuf
-			   : icalcomponent_get_summary(ev->vevent);
+	const char *summary =
+		icalcomponent_get_summary(ev->vevent);
 
 	if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
 		c.a *= 0.95;
@@ -1888,79 +1982,8 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
 	cairo_fill(cr);
-	// TODO: event text color
-	static const double txtc = 0.2;
-	cairo_set_source_rgb(cr, txtc, txtc, txtc);
-	if (isdate) {
-		sprintf(buffer, is_selected ? "'%s'" : "%s", summary);
-		cairo_text_extents(cr, buffer, &exts);
-		cairo_move_to(cr, x + EVPAD, y + (evheight / 2.0)
-						+ ((double)exts.height / 2.0));
-		cairo_show_text(cr, buffer);
-	}
-	/* else if (len > 30*60) { */
-	/*   format_locale_timet(bsmall, 32, st); */
-	/*   format_locale_timet(bsmall2, 32, et); */
-	/*   sprintf(buffer, "%s — %s", bsmall, bsmall2); */
-	/*   cairo_show_text(cr, buffer); */
-	/*   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD * 2); */
-	/*   cairo_show_text(cr, summary); */
-	/* } */
-	else {
-		format_locale_timet(bsmall, 32, st);
-		format_locale_timet(bsmall2, 32, et);
-		/* printf("%ld %ld start %s end %s\n", st, et, bsmall, bsmall2); */
-		// TODO: configurable event format
-		char duration_format[32] = {0};
-		char duration_format_in[32] = {0};
-		char duration_format_out[32] = {0};
-		time_t now, in, out;
-		time(&now);
-
-		in = now - st;
-		out = et - now;
-
-		format_time_duration(duration_format, sizeof(duration_format), len);
-		format_time_duration(duration_format_in, sizeof(duration_format), in);
-		format_time_duration(duration_format_out, sizeof(duration_format), out);
-
-		if (out >= 0 && in >= 0 && out < len) {
-			const char *fmt =
-				is_editing
-					?  "'%s' | %s | %s in | %s left"
-					:  "%s | %s | %s in | %s left";
-
-				sprintf(buffer, fmt, summary,
-					duration_format,
-					duration_format_in,
-					duration_format_out);
-		}
-		else if (in >= 0 && in < 0) {
-			const char *fmt =
-				is_editing
-					?  "'%s' | %s | %s in"
-					:  "%s | %s | %s in";
-
-			sprintf(buffer, fmt, summary,
-				duration_format,
-				duration_format_in);
-		}
-		else {
-			const char *fmt =
-				is_editing
-					? "'%s' | %s"
-					: "%s | %s";
-
-			sprintf(buffer, fmt, summary, duration_format);
-		}
-
-		cairo_text_extents(cr, buffer, &exts);
-		double ey = evheight < exts.height
-			? y + TXTPAD - EVPAD
-			: y + TXTPAD + EVPAD;
-		cairo_move_to(cr, x + EVPAD, ey);
-		cairo_show_text(cr, buffer);
-	}
+	draw_event_summary(cr, cal, st, et, dtstart.is_date, is_selected,
+			   evheight, summary, sel, x, y);
 }
 
 
@@ -1995,6 +2018,9 @@ draw_time_line(cairo_t *cr, struct cal *cal, time_t time) {
 static void
 draw_selection (cairo_t *cr, struct cal *cal)
 {
+	static const char *summary = "";
+	static const int is_selected = 0;
+	static const int is_date = 0;
 	double sx = cal->x;
 	double sy = calendar_time_to_loc_absolute(cal, cal->current);
 	time_t et = get_selection_end(cal);
@@ -2005,6 +2031,9 @@ draw_selection (cairo_t *cr, struct cal *cal)
 	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.2);
 	draw_rectangle(cr, cal->width, height);
 	cairo_fill(cr);
+	draw_event_summary(cr, cal, cal->current, et, is_date, is_selected,
+			   height, summary, NULL, sx, sy);
+
 }
 
 static int

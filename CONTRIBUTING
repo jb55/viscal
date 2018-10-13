@@ -1,0 +1,31 @@
+Feel free to email patches to
+
+  To: William Casarin <jb55@jb55.com>
+  Cc: ~jb55/public-inbox@lists.sr.ht
+
+Use git-format-patch and git-send-email.
+
+
+Setup
+-----
+
+mkdir -p patches/<branch>
+
+git config format.subjectPrefix 'PATCH viscal'
+
+
+
+Sending a patch
+---------------
+
+# replace <branch> with your branch
+
+git format-patch --output-directory=patches/<branch> \
+                  --cover-letter \    # (optional)
+                  <branch>^
+
+$EDITOR 0000-cover-letter.patch      # (optional)
+
+git send-email --to="William Casarin <jb55@jb55.com>" \
+                --cc="~jb55/public-inbox@lists.sr.ht" \
+                patches/<branch>/*.patch

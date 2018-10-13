@@ -1351,6 +1351,12 @@ static void set_stepsize(struct cal *cal, int size)
 	cal->timeblock_step = size;
 }
 
+static void next_calendar(struct cal *cal)
+{
+	cal->selected_calendar_ind =
+		(cal->selected_calendar_ind + 1) % cal->ncalendars;
+}
+
 static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
 {
 	struct extra_data *data = (struct extra_data*)user_data;
@@ -1400,7 +1406,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 		}
 
-		/* printf("DEBUG keystring %x\n", *event->key.string); */
+		printf("DEBUG keystring %x\n", *event->key.string);
 
 		switch (key) {
 
@@ -1414,11 +1420,13 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			cal->scroll -= scroll_amt;
 			break;
 
-			// Ctrl-u
+		// Ctrl-s
 		case 0x13:
 			save_calendars(cal);
 			break;
 
+		case '\t':
+			next_calendar(cal);
 
 		case 'd':
 			set_chord(cal, 'd');
@@ -2012,7 +2020,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 
 	// TODO: selected event rendering
 	if (is_selected)
-		saturate(&c, 0.5);
+		saturate(&c, 0.2);
 
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
@@ -2188,7 +2196,7 @@ int main(int argc, char *argv[])
 			ical->color.b = rand_0to1() > 0.5 ? 1.0 : 0;
 			ical->color.a = 1.0;
 
-			saturate(&ical->color, 0.4);
+			saturate(&ical->color, 0.5);
 		}
 		else {
 			printf("failed to load calendar\n");

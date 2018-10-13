@@ -14,17 +14,7 @@ New events -> PUT request
 ** TODO paste
 ** TODO undo stack
 ** TODO Movement should scroll the screen
-** TODO Figure out keys for event-movement
-
-Right now it's j/k but that should probably be reserved for
-moving around in general.
-
-Options:
-
-- n/p ?
 ** TODO Test writing cal to disk
-** TODO adjust time block size
-
 
 * CALDAV
 
@@ -36,10 +26,8 @@ Options:
 * Keys
 
 ** TODO O       open_up
-** TODO i       create_event
 ** TODO J       join two events?
-** TODO dd      delete event, pushing lower events up to fill the hole
-** TODO x,D?    delete event
+** TODO D?      delete all events in timeblock
 
 * UI
 

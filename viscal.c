@@ -1403,12 +1403,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			set_chord(cal, 'd');
 			break;
 
-		case 's':
-			set_stepsize(cal, cal->repeat * 5);
-			break;
-
 		case 'C':
 		case 'c':
+		case 's':
+		case 'S':
 			edit_mode(cal, EDIT_CLEAR);
 			break;
 

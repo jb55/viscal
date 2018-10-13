@@ -9,23 +9,27 @@ Use git-format-patch and git-send-email.
 Setup
 -----
 
-mkdir -p patches/<branch>
+replace <branch> with your branch
 
-git config format.subjectPrefix 'PATCH viscal'
+
+    mkdir -p patches/<branch>
+
+    git config format.subjectPrefix 'PATCH viscal'
 
 
 
 Sending a patch
 ---------------
 
-# replace <branch> with your branch
+replace <branch> with your branch
 
-git format-patch --output-directory=patches/<branch> \
-                  --cover-letter \    # (optional)
-                  <branch>^
 
-$EDITOR 0000-cover-letter.patch      # (optional)
+    git format-patch --output-directory=patches/<branch> \
+                      --cover-letter \    # (optional)
+                      <branch>^
 
-git send-email --to="William Casarin <jb55@jb55.com>" \
-                --cc="~jb55/public-inbox@lists.sr.ht" \
-                patches/<branch>/*.patch
+    $EDITOR 0000-cover-letter.patch      # (optional)
+
+    git send-email --to="William Casarin <jb55@jb55.com>" \
+                    --cc="~jb55/public-inbox@lists.sr.ht" \
+                    patches/<branch>/*.patch

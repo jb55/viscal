@@ -860,6 +860,7 @@ static int number_of_hours_in_view(struct cal *cal)
 
 static void center_view(struct cal *cal)
 {
+	static char buf[128];
 	time_t current_hour;
 	struct tm current_tm;
 
@@ -867,11 +868,12 @@ static void center_view(struct cal *cal)
 	current_tm.tm_min = 0;
 	current_hour = mktime(&current_tm);
 
-	// get time at position top of view and bottom of view / 2
+	int hours = number_of_hours_in_view(cal);
+	cal->start_at = current_hour - cal->today - hours * 60 * 60;
 
-	int half_hours = number_of_hours_in_view(cal) / 2 - 1;
+	format_locale_timet(buf, 128, cal->start_at);
+	printf("DEBUG centering at %s\n", buf);
 
-	cal->start_at = current_hour - cal->today - half_hours * 60 * 60;
 	cal->scroll = 0;
 }
 

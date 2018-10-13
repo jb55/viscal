@@ -6,6 +6,10 @@
 
 If we have overlapping events, they should automatically subdivide
 
+** TODO Refresh every second?
+
+Right now you have to manually refresh the view my moving which is annoying
+
 ** TODO Open from caldav
 
 New events -> PUT request

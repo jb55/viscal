@@ -178,6 +178,7 @@ calendar_create(struct cal *cal) {
 	nowtm.tm_min = 0;
 	nowh = mktime(&nowtm);
 	nowtm.tm_hour = 0;
+	nowtm.tm_sec = 0;
 	today = mktime(&nowtm);
 
 	cal->selected_calendar_ind = 0;

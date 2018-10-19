@@ -30,6 +30,7 @@
 
 // TODO: heap-realloc events array
 #define MAX_EVENTS 1024
+#define SMALLEST_TIMEBLOCK 5
 
 static icaltimezone *tz_utc;
 static const double BGCOLOR = 0.35;
@@ -130,6 +131,9 @@ struct chord {
 	chord_cmd *cmd;
 };
 
+static void align_hour(struct cal *);
+static void align_up(struct cal *);
+static void align_down(struct cal *);
 static void center_view(struct cal *);
 static void top_view(struct cal *);
 static void bottom_view(struct cal *);
@@ -140,6 +144,9 @@ static void select_up(struct cal *);
 static void delete_timeblock(struct cal *);
 
 static struct chord chords[] = {
+	{ "ah", align_hour },
+	{ "ak", align_up },
+	{ "aj", align_down },
 	{ "zz", center_view },
 	{ "zt", top_view },
 	{ "zb", bottom_view },
@@ -206,6 +213,7 @@ static void warn(const char *msg) {
 	printf("WARN %s\n", msg);
 }
 
+
 static void set_current_calendar(struct cal *cal, struct ical *ical)
 {
 	for (int i = 0; i < cal->ncalendars; i++) {
@@ -247,6 +255,7 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 	if (st) {
 		dtstart = icalcomponent_get_dtstart(vevent);
 		*st = icaltime_as_timet_with_zone(dtstart, NULL);
+		/* icaltimezone_convert_time(&tt, from_zone, to_zone); */
 	}
 
 	if (et) {
@@ -365,6 +374,13 @@ static void set_edit_buffer(const char *src)
 		n++;
 
 	g_editbuf_pos = n;
+}
+
+static struct ical *get_selected_calendar(struct cal *cal)
+{
+	if (cal->ncalendars == 0 || cal->selected_calendar_ind == -1)
+		return NULL;
+	return &cal->calendars[cal->selected_calendar_ind];
 }
 
 static struct event *get_selected_event(struct cal *cal)
@@ -748,12 +764,94 @@ static void select_up(struct cal *cal)
 	cal->selected_event_ind = relative_selection(cal, -cal->repeat);
 }
 
-static void move_now(struct cal *cal)
+static time_t get_hour(time_t current)
 {
-	select_closest_to_now(cal);
+	struct tm current_tm;
+	current_tm = *localtime(&current);
+	current_tm.tm_min = 0;
+	current_tm.tm_sec = 0;
+	return mktime(&current_tm);
 }
 
-static void insert_event(struct cal *cal, time_t st, time_t et, struct ical *ical)
+static time_t get_smallest_closest_timeblock(time_t current, int round_by)
+{
+	struct tm current_tm;
+	current_tm = *localtime(&current);
+	current_tm.tm_min =
+		round(current_tm.tm_min / (double)round_by) * round_by;
+	current_tm.tm_sec = 0;
+
+	return mktime(&current_tm);
+}
+
+static void align_down(struct cal *cal)
+{
+	assert(!"implement me");
+	struct event *event =
+		get_selected_event(cal);
+}
+
+static void align_up(struct cal *cal)
+{
+	assert(!"implement me");
+	struct event *event =
+		get_selected_event(cal);
+}
+
+static void align_hour(struct cal *cal)
+{
+	struct tm current_tm;
+	time_t hour;
+	current_tm = *localtime(&cal->current);
+	current_tm.tm_min =
+		round(current_tm.tm_min / 60.0) * 60;
+	current_tm.tm_sec = 0;
+	hour = mktime(&current_tm);
+
+	printf("tm_min %d\n", current_tm.tm_min);
+
+	cal->current = hour;
+}
+
+static void move_event_to(struct event *event, time_t to)
+{
+	time_t st, et;
+
+	vevent_span_timet(event->vevent, &st, &et);
+
+	icaltimetype dtstart =
+		icaltime_from_timet_with_zone(to, 0, NULL);
+
+	icaltimetype dtend =
+		icaltime_from_timet_with_zone(to + (et - st), 0, NULL);
+
+	icalcomponent_set_dtstart(event->vevent, dtstart);
+	icalcomponent_set_dtend(event->vevent, dtend);
+}
+
+static void move_event_now(struct cal *cal)
+{
+	struct event *event =
+		get_selected_event(cal);
+
+	if (event == NULL)
+		return;
+
+	time_t closest =
+		get_smallest_closest_timeblock(time(NULL), SMALLEST_TIMEBLOCK);
+
+	move_event_to(event, closest);
+}
+
+static void move_now(struct cal *cal)
+{
+	cal->current =
+		get_smallest_closest_timeblock(time(NULL), SMALLEST_TIMEBLOCK);
+	center_view(cal);
+}
+
+static void insert_event(struct cal *cal, time_t st, time_t et,
+			 struct ical *ical)
 {
 	cal->flags |= CAL_INSERTING;
 	create_event(cal, st, et, ical->calendar);
@@ -867,12 +965,9 @@ static int number_of_hours_in_view(struct cal *cal)
 static void relative_view(struct cal *cal, int hours)
 {
 	time_t current_hour;
-	struct tm current_tm;
 
 	// currently needed because the grid is hour-aligned
-	current_tm = *localtime(&cal->current);
-	current_tm.tm_min = 0;
-	current_hour = mktime(&current_tm);
+	current_hour = get_hour(cal->current);
 
 	// zt -> cal->current - cal->today
 	cal->start_at = current_hour - cal->today - (hours * 60 * 60);
@@ -914,7 +1009,7 @@ static void expand_event(struct event *event, int minutes)
 static void expand_selection_relative(struct cal *cal, int sign)
 {
 	int *step = &cal->timeblock_step;
-	*step = 5;
+	*step = SMALLEST_TIMEBLOCK;
 
 	struct event *event = get_selected_event(cal);
 
@@ -1109,20 +1204,11 @@ static int event_is_today(time_t today, struct event *event)
 
 static void move_event(struct event *event, int minutes)
 {
-	/* time_t tst, tet; */
 	icaltimetype st, et;
 	struct icaldurationtype add;
 
 	st = icalcomponent_get_dtstart(event->vevent);
 	et = icalcomponent_get_dtend(event->vevent);
-
-	/* if (abs(minutes) == 1) { */
-		/* vevent_span_timet(event->vevent, &tst, &tet); */
-		/* minutes = minutes * ((tet - tst) / 60); */
-	/* } */
-
-	/* if (abs(minutes) >= 30) */
-	/* 	minutes = sgn(minutes) * 30; */
 
 	add = icaldurationtype_from_int(minutes * 60);
 
@@ -1143,7 +1229,7 @@ static void move_event_action(struct cal *cal, int direction)
 	if (!event)
 		return;
 
-	move_event(event, direction * cal->repeat * 5);
+	move_event(event, direction * cal->repeat * SMALLEST_TIMEBLOCK);
 }
 
 static void save_calendar(struct ical *calendar)
@@ -1303,9 +1389,11 @@ static int on_edit_keypress(struct cal *cal, GdkEventKey *event)
 		return 1;
 	}
 
-	if (key == 0x17) {
+	switch (key) {
+	// Ctrl-w
+	case 0x17:
 		pop_word_edit_buffer();
-		return 1;
+		break;
 	}
 
 	// TODO: more special edit keys
@@ -1347,18 +1435,14 @@ static void set_chord(struct cal *cal, char c)
 	cal->chord = c;
 }
 
-static void set_stepsize(struct cal *cal, int size)
-{
-	cal->timeblock_step = size;
-}
-
 static void next_calendar(struct cal *cal)
 {
 	cal->selected_calendar_ind =
 		(cal->selected_calendar_ind + 1) % cal->ncalendars;
 }
 
-static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_data)
+static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
+			     gpointer user_data)
 {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
@@ -1428,9 +1512,6 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 
 		case '\t':
 			next_calendar(cal);
-
-		case 'd':
-			set_chord(cal, 'd');
 			break;
 
 		case 'C':
@@ -1441,8 +1522,8 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			break;
 
 		case 'A':
-		case 'a':
-			edit_mode(cal, 0);
+			if (cal->selected_event_ind != -1)
+				edit_mode(cal, 0);
 			break;
 
 		case 'x':
@@ -1453,8 +1534,8 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			move_now(cal);
 			break;
 
-		case 'g':
-			set_chord(cal, 'g');
+		case 'T':
+			move_event_now(cal);
 			break;
 
 		case 'K':
@@ -1473,10 +1554,6 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 			move_up(cal, cal->repeat);
 			break;
 
-		case 'z':
-			set_chord(cal, 'z');
-			break;
-
 		case 'v':
 			expand_selection(cal);
 			break;
@@ -1492,6 +1569,9 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent  *event, gpointer user_
 		case 'o':
 			open_below(cal);
 			break;
+
+		default:
+			set_chord(cal, key);
 		}
 
 		if (key != 0) {
@@ -2072,7 +2152,7 @@ draw_selection (cairo_t *cr, struct cal *cal)
 
 	cairo_move_to(cr, sx, sy);
 
-	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.2);
+	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.4);
 	draw_rectangle(cr, cal->width, height);
 	cairo_fill(cr);
 	draw_event_summary(cr, cal, cal->current, et, is_date, is_selected,

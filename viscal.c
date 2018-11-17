@@ -789,14 +789,14 @@ static time_t get_smallest_closest_timeblock(time_t current, int round_by)
 
 static void align_down(struct cal *cal)
 {
-	assert(!"implement me");
+	/* assert(!"implement me"); */
 	struct event *event =
 		get_selected_event(cal);
 }
 
 static void align_up(struct cal *cal)
 {
-	assert(!"implement me");
+	/* assert(!"implement me"); */
 	struct event *event =
 		get_selected_event(cal);
 }

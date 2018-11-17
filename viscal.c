@@ -92,6 +92,7 @@ struct event {
 // used for temporary storage when editing summaries, descriptions, etc
 static char g_editbuf[EDITBUF_MAX] = {0};
 static int g_editbuf_pos = 0;
+static icaltimezone *g_cal_tz;
 
 struct cal {
 	GtkWidget *widget;
@@ -254,13 +255,12 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 
 	if (st) {
 		dtstart = icalcomponent_get_dtstart(vevent);
-		*st = icaltime_as_timet_with_zone(dtstart, NULL);
-		/* icaltimezone_convert_time(&tt, from_zone, to_zone); */
+		*st = icaltime_as_timet_with_zone(dtstart, g_cal_tz);
 	}
 
 	if (et) {
 		dtend = icalcomponent_get_dtend(vevent);
-		*et = icaltime_as_timet_with_zone(dtend, NULL);
+		*et = icaltime_as_timet_with_zone(dtend, g_cal_tz);
 	}
 }
 
@@ -523,13 +523,16 @@ static struct ical * calendar_load_ical(struct cal *cal, char *path) {
 
 	// TODO: free icalcomponent somewhere
 	const char *str = file_load(path);
-	if (str == NULL) return NULL;
+	if (str == NULL)
+		return NULL;
+
 	icalcomponent *calendar = icalparser_parse_string(str);
-	if (!calendar) return NULL;
+	if (!calendar)
+		return NULL;
 
 	// TODO: support >128 calendars
 	if (ARRAY_SIZE(cal->calendars) == cal->ncalendars)
-	return NULL;
+		return NULL;
 
 	ical = &cal->calendars[cal->ncalendars++];
 	ical->calendar = calendar;
@@ -657,8 +660,8 @@ static icalcomponent *create_event(struct cal *cal, time_t start, time_t end,
 				   icalcomponent *ical) {
 	static const char *default_event_summary = "";
 	icalcomponent *vevent;
-	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, tz_utc);
-	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, tz_utc);
+	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, cal->tz);
+	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, cal->tz);
 
 	vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
@@ -2289,7 +2292,7 @@ int main(int argc, char *argv[])
 	//select_closest_to_now(&cal);
 
 	// TODO: get system timezone
-	cal.tz = icaltimezone_get_builtin_timezone("America/Vancouver");
+	g_cal_tz = cal.tz = icaltimezone_get_builtin_timezone("America/Vancouver");
 	tz_utc = icaltimezone_get_builtin_timezone("UTC");
 
 	g_text_color.r = text_col;

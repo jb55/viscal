@@ -92,6 +92,8 @@ struct event {
 // used for temporary storage when editing summaries, descriptions, etc
 static char g_editbuf[EDITBUF_MAX] = {0};
 static int g_editbuf_pos = 0;
+
+// TODO: move or remove g_cal_tz
 static icaltimezone *g_cal_tz;
 
 struct cal {
@@ -490,7 +492,6 @@ static void calendar_refresh_events(struct cal *cal) {
 }
 
 
-
 static int on_state_change(GtkWidget *widget, GdkEvent *ev, gpointer user_data) {
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
@@ -792,6 +793,7 @@ static void align_down(struct cal *cal)
 	/* assert(!"implement me"); */
 	struct event *event =
 		get_selected_event(cal);
+	(void)event;
 }
 
 static void align_up(struct cal *cal)
@@ -799,6 +801,7 @@ static void align_up(struct cal *cal)
 	/* assert(!"implement me"); */
 	struct event *event =
 		get_selected_event(cal);
+	(void)event;
 }
 
 static void align_hour(struct cal *cal)

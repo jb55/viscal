@@ -2243,6 +2243,11 @@ static inline double rand_0to1() {
 	return (double) rand() / RAND_MAX;
 }
 
+static gboolean redraw_timer_handler(struct extra_data *data) {
+	gtk_widget_queue_draw(data->cal->widget);
+	return 1;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -2327,6 +2332,10 @@ int main(int argc, char *argv[])
 
 	cursor_pointer = gdk_cursor_new_from_name (display, "pointer");
 	cursor_default = gdk_cursor_new_from_name (display, "default");
+
+	// redraw timer
+	g_timeout_add(500, (GSourceFunc)redraw_timer_handler,
+		      (gpointer)&extra_data);
 
 	g_signal_connect(G_OBJECT(darea), "button-press-event",
 			G_CALLBACK(on_press), (gpointer)&extra_data);

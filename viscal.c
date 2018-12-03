@@ -570,7 +570,10 @@ static struct event *get_target(struct cal *cal) {
 static icaltimetype icaltime_from_timet_ours(time_t time, int is_date,
 					     struct cal *cal)
 {
-	return icaltime_from_timet_with_zone(time, is_date, cal->tz);
+	icaltimezone *tz;
+	tz = cal == NULL ? g_cal_tz : cal->tz;
+
+	return icaltime_from_timet_with_zone(time, is_date, tz);
 }
 
 static void calendar_drop(struct cal *cal, double mx, double my) {
@@ -1079,10 +1082,8 @@ static void zoom_out(struct cal *cal) {
 		zoom(cal, zoom_amt);
 }
 
-
 static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 {
-	icaltimetype dtstart, dtend;
 	time_t f_st, from_event_et, st, et, new_et;
 	struct event *ev, *fromev;
 
@@ -1100,19 +1101,36 @@ static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 		return;
 
 	new_et = et + (push_to - st);
-
-	dtstart = icaltime_from_timet_ours(push_to, 0, cal);
-	dtend   = icaltime_from_timet_ours(new_et, 0, cal);
-
-	// TODO: undo
-	icalcomponent_set_dtstart(ev->vevent, dtstart);
-	icalcomponent_set_dtend(ev->vevent, dtend);
+	move_event_to(ev, push_to);
 
 	if (ind + 1 > cal->nevents - 1)
 		return;
 
 	// push rest
 	push_down(cal, ind, ind+1, new_et);
+}
+
+static void pushmove_down(struct cal *cal) {
+	time_t st, et, push_to, new_st;
+	struct event *ev;
+
+	ev = get_selected_event(cal);
+
+	if (ev == NULL)
+		return;
+
+	vevent_span_timet(ev->vevent, &st, &et);
+
+	// TODO: configurable?
+	static const int adjust = SMALLEST_TIMEBLOCK * 60;
+
+	new_st = st + adjust;
+	push_to = new_st + (et - st);
+
+	move_event_to(ev, new_st);
+
+	push_down(cal, cal->selected_event_ind, cal->selected_event_ind+1,
+		  push_to);
 }
 
 static void open_below(struct cal *cal)
@@ -1463,6 +1481,9 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:
+		printf("DEBUG keystring %x %d\n",
+		       *event->key.string, event->key.state);
+
 		if (cal->flags & CAL_CHANGING) {
 			state_changed = on_edit_keypress(cal, &event->key);
 			debug_edit_buffer(&event->key);
@@ -1501,8 +1522,6 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			cal->repeat = nkey;
 			break;
 		}
-
-		printf("DEBUG keystring %x\n", *event->key.string);
 
 		switch (key) {
 
@@ -1555,6 +1574,11 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 
 		case 'J':
 			move_event_action(cal, 1);
+			break;
+
+		// Ctrl-j
+		case 0xa:
+			pushmove_down(cal);
 			break;
 
 		case 'j':

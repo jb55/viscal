@@ -209,7 +209,7 @@ calendar_create(struct cal *cal) {
 	cal->today = today;
 	cal->x = g_lmargin;
 	cal->y = cal->gutter_height;
-	cal->zoom = 2.0;
+	cal->zoom = 5.0;
 }
 
 static void warn(const char *msg) {

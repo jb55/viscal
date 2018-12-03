@@ -567,6 +567,11 @@ static struct event *get_target(struct cal *cal) {
 	return &cal->events[cal->target];
 }
 
+static icaltimetype icaltime_from_timet_ours(time_t time, int is_date,
+					     struct cal *cal)
+{
+	return icaltime_from_timet_with_zone(time, is_date, cal->tz);
+}
 
 static void calendar_drop(struct cal *cal, double mx, double my) {
 	struct event *ev = get_target(cal);
@@ -584,12 +589,12 @@ static void calendar_drop(struct cal *cal, double mx, double my) {
 	// TODO: convert timezone on drag?
 
 	icaltimetype startt =
-		icaltime_from_timet_with_zone(ev->drag_time, 0, NULL);
+		icaltime_from_timet_ours(ev->drag_time, 0, cal);
 
 	icalcomponent_set_dtstart(ev->vevent, startt);
 
 	icaltimetype endt =
-		icaltime_from_timet_with_zone(ev->drag_time + len, 0, NULL);
+		icaltime_from_timet_ours(ev->drag_time + len, 0, cal);
 
 	icalcomponent_set_dtend(ev->vevent, endt);
 }
@@ -661,8 +666,8 @@ static icalcomponent *create_event(struct cal *cal, time_t start, time_t end,
 				   icalcomponent *ical) {
 	static const char *default_event_summary = "";
 	icalcomponent *vevent;
-	icaltimetype dtstart = icaltime_from_timet_with_zone(start, 0, cal->tz);
-	icaltimetype dtend = icaltime_from_timet_with_zone(end, 0, cal->tz);
+	icaltimetype dtstart = icaltime_from_timet_ours(start, 0, cal);
+	icaltimetype dtend = icaltime_from_timet_ours(end, 0, cal);
 
 	vevent = icalcomponent_new(ICAL_VEVENT_COMPONENT);
 
@@ -826,10 +831,10 @@ static void move_event_to(struct event *event, time_t to)
 	vevent_span_timet(event->vevent, &st, &et);
 
 	icaltimetype dtstart =
-		icaltime_from_timet_with_zone(to, 0, NULL);
+		icaltime_from_timet_ours(to, 0, NULL);
 
 	icaltimetype dtend =
-		icaltime_from_timet_with_zone(to + (et - st), 0, NULL);
+		icaltime_from_timet_ours(to + (et - st), 0, NULL);
 
 	icalcomponent_set_dtstart(event->vevent, dtstart);
 	icalcomponent_set_dtend(event->vevent, dtend);
@@ -1096,8 +1101,8 @@ static void push_down(struct cal *cal, int from, int ind, time_t push_to)
 
 	new_et = et + (push_to - st);
 
-	dtstart = icaltime_from_timet_with_zone(push_to, 0, NULL);
-	dtend   = icaltime_from_timet_with_zone(new_et, 0, NULL);
+	dtstart = icaltime_from_timet_ours(push_to, 0, cal);
+	dtend   = icaltime_from_timet_ours(new_et, 0, cal);
 
 	// TODO: undo
 	icalcomponent_set_dtstart(ev->vevent, dtstart);

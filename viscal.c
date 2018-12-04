@@ -1468,6 +1468,8 @@ static void next_calendar(struct cal *cal)
 {
 	cal->selected_calendar_ind =
 		(cal->selected_calendar_ind + 1) % cal->ncalendars;
+	printf("using calendar %s\n",
+	       cal->calendars[cal->selected_calendar_ind].source_location);
 }
 
 static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
@@ -1540,6 +1542,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			save_calendars(cal);
 			break;
 
+		// tab
 		case '\t':
 			next_calendar(cal);
 			break;

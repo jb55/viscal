@@ -680,7 +680,6 @@ static icalcomponent *create_event(struct cal *cal, time_t start, time_t end,
 	icalcomponent_add_component(ical, vevent);
 
 	calendar_refresh_events(cal);
-
 	cal->select_after_sort = vevent;
 
 	return vevent;
@@ -1464,12 +1463,37 @@ static void set_chord(struct cal *cal, char c)
 	cal->chord = c;
 }
 
+static void move_event_to_calendar(struct cal *cal, struct event *event,
+				   struct ical *from, struct ical *to)
+{
+	icalcomponent_remove_component(from->calendar, event->vevent);
+	icalcomponent_add_component(to->calendar, event->vevent);
+	event->ical = to;
+}
+
 static void next_calendar(struct cal *cal)
 {
+	struct event *event;
+	struct ical *from;
+	struct ical *to;
+
+	from = &cal->calendars[cal->selected_calendar_ind];
+
 	cal->selected_calendar_ind =
 		(cal->selected_calendar_ind + 1) % cal->ncalendars;
-	printf("using calendar %s\n",
-	       cal->calendars[cal->selected_calendar_ind].source_location);
+
+	to = &cal->calendars[cal->selected_calendar_ind];
+
+	printf("using calendar %s\n", to->source_location);
+
+	// move event to next calendar if we're editing it
+	if (cal->flags & CAL_CHANGING) {
+		event = get_selected_event(cal);
+		if (!event)
+			assert(!"no selected event when CAL_CHANGING");
+
+		move_event_to_calendar(cal, event, from, to);
+	}
 }
 
 static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
@@ -1483,16 +1507,17 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:
-		printf("DEBUG keystring %x %d\n",
-		       *event->key.string, event->key.state);
+		key = *event->key.string;
 
-		if (cal->flags & CAL_CHANGING) {
+		printf("DEBUG keystring %x %d\n",
+		       key, event->key.state);
+
+		// Ctrl-tab during editing still switch cal
+		if (key != '\t' && (cal->flags & CAL_CHANGING)) {
 			state_changed = on_edit_keypress(cal, &event->key);
 			debug_edit_buffer(&event->key);
 			goto check_state;
 		}
-
-		key = *event->key.string;
 
 		// handle chords
 		if (cal->chord) {

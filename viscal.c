@@ -860,7 +860,7 @@ static void move_now(struct cal *cal)
 {
 	cal->current =
 		get_smallest_closest_timeblock(time(NULL), SMALLEST_TIMEBLOCK);
-	center_view(cal);
+	//center_view(cal);
 }
 
 static void insert_event(struct cal *cal, time_t st, time_t et,

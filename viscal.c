@@ -856,11 +856,32 @@ static void move_event_now(struct cal *cal)
 	move_event_to(event, closest);
 }
 
+static int time_in_view(struct cal *cal, time_t time) {
+	time_t st = calendar_loc_to_time(cal, 0);
+	time_t et = calendar_loc_to_time(cal, 1.0);
+
+	return time >= st && time <= et;
+}
+
+static int timeline_in_view(struct cal *cal)
+{
+	return time_in_view(cal, cal->current);
+}
+
+static void deselect(struct cal *cal)
+{
+	cal->selected_event_ind = -1;
+}
+
 static void move_now(struct cal *cal)
 {
+	deselect(cal);
+
 	cal->current =
 		get_smallest_closest_timeblock(time(NULL), SMALLEST_TIMEBLOCK);
-	//center_view(cal);
+
+	if (!timeline_in_view(cal))
+		center_view(cal);
 }
 
 static void insert_event(struct cal *cal, time_t st, time_t et,

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <locale.h>
+#include <stdbool.h>
 
 #define ARRAY_SIZE(array) (sizeof((array))/sizeof((array)[0]))
 
@@ -74,6 +75,7 @@ struct ical {
 	enum source source;
 	const char *source_location;
 	union rgba color;
+	bool visible;
 };
 
 struct event {
@@ -537,6 +539,7 @@ static struct ical * calendar_load_ical(struct cal *cal, char *path) {
 
 	ical = &cal->calendars[cal->ncalendars++];
 	ical->calendar = calendar;
+	ical->visible = true;
 
 	free((void*)str);
 	return ical;
@@ -1499,11 +1502,17 @@ static void next_calendar(struct cal *cal)
 	struct ical *to;
 
 	from = &cal->calendars[cal->selected_calendar_ind];
-
 	cal->selected_calendar_ind =
 		(cal->selected_calendar_ind + 1) % cal->ncalendars;
 
-	to = &cal->calendars[cal->selected_calendar_ind];
+	while((to = &cal->calendars[cal->selected_calendar_ind]) != from && !to->visible) {
+		cal->selected_calendar_ind =
+			(cal->selected_calendar_ind + 1) % cal->ncalendars;
+	}
+
+	// only one selectable calendar
+	if (from == to)
+		return;
 
 	printf("using calendar %s\n", to->source_location);
 
@@ -1515,6 +1524,14 @@ static void next_calendar(struct cal *cal)
 
 		move_event_to_calendar(cal, event, from, to);
 	}
+}
+
+static void toggle_calendar_visibility(struct cal *cal, int ind)
+{
+	if (ind+1 > cal->ncalendars)
+		return;
+	cal->calendars[ind].visible =
+		!cal->calendars[ind].visible;
 }
 
 static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
@@ -1572,6 +1589,15 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 		}
 
 		switch (key) {
+
+		case '1': case '2': case '3':
+		case '4': case '5': case '6':
+		case '7': case '8': case '9':
+			printf("num %c\n", key);
+			int ind = key-'1';
+			assert(ind >= 0);
+			toggle_calendar_visibility(cal, ind);
+			break;
 
 		// Ctrl-d
 		case 0x4:
@@ -2261,7 +2287,8 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	// draw calendar events
 	for (i = 0; i < cal->nevents; ++i) {
 		struct event *ev = &cal->events[i];
-		draw_event(cr, cal, ev, selected, get_target(cal));
+		if (ev->ical->visible)
+			draw_event(cr, cal, ev, selected, get_target(cal));
 	}
 
 	if (cal->selected_event_ind == -1)

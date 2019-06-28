@@ -1546,15 +1546,17 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 	struct extra_data *data = (struct extra_data*)user_data;
 	struct cal *cal = data->cal;
 	char key;
+	int hardware_key;
 	int state_changed = 1;
 	static const int scroll_amt = 60*60;
 
 	switch (event->type) {
 	case GDK_KEY_PRESS:
 		key = *event->key.string;
+		hardware_key = event->key.hardware_keycode;
 
-		printf("DEBUG keystring %x %d\n",
-		       key, event->key.state);
+		printf("DEBUG keystring %x %d hw:%d\n",
+		       key, event->key.state, event->key.hardware_keycode);
 
 		// Ctrl-tab during editing still switch cal
 		if (key != '\t' && (cal->flags & CAL_CHANGING)) {
@@ -1594,16 +1596,18 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			break;
 		}
 
-		switch (key) {
-
-		case '1': case '2': case '3':
-		case '4': case '5': case '6':
-		case '7': case '8': case '9':
-			printf("num %c\n", key);
-			int ind = key-'1';
+		switch (hardware_key) {
+			// f1, f2, ...
+		case 67: case 68: case 69:
+		case 70: case 71: case 72:
+			printf("f%d\n", hardware_key-66);
+			int ind = hardware_key-67;
 			assert(ind >= 0);
 			toggle_calendar_visibility(cal, ind);
 			break;
+		}
+
+		switch (key) {
 
 		// Ctrl-d
 		case 0x4:

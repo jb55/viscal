@@ -974,7 +974,13 @@ static void move_relative(struct cal *cal, int rel)
 	if ((hit = query_span(cal, 0, st, et, 0, 0)) != -1) {
 		struct event *ev = &cal->events[hit];
 		vevent_span_timet(ev->vevent, &st, &et);
-		cal->current = st;
+
+		if (!ev->ical->visible) {
+			hit = -1;
+		}
+		else {
+			cal->current = st;
+		}
 	}
 
 	cal->selected_event_ind = hit;

@@ -894,17 +894,28 @@ static void insert_event(struct cal *cal, time_t st, time_t et,
 	create_event(cal, st, et, ical->calendar);
 }
 
-static void insert_event_action(struct cal *cal)
+static void insert_event_action_with(struct cal *cal, time_t st)
 {
 	// we should eventually always have a calendar
 	// at least a temporary one
 	if (cal->ncalendars == 0)
 		return;
 
-	time_t st = cal->current;
-	time_t et = cal->current + cal->timeblock_size * 60;
+	time_t et = st + cal->timeblock_size * 60;
 
 	insert_event(cal, st, et, current_calendar(cal));
+}
+
+static void insert_event_after_action(struct cal *cal)
+{
+	time_t start = cal->current + cal->timeblock_size * 60;
+	insert_event_action_with(cal, start);
+}
+
+
+static void insert_event_action(struct cal *cal)
+{
+	insert_event_action_with(cal, cal->current);
 }
 
 
@@ -1171,8 +1182,10 @@ static void open_below(struct cal *cal)
 
 	ev = get_selected_event(cal);
 
-	if (ev == NULL)
+	if (ev == NULL) {
+		insert_event_after_action(cal);
 		return;
+	}
 
 	vevent_span_timet(ev->vevent, &st, &et);
 

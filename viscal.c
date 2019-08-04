@@ -2144,8 +2144,8 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 		if (out >= 0 && in >= 0 && out < len) {
 			const char *fmt =
 				is_editing
-				?  "'%s' | %s to %s | %s | %s in | %s left"
-				:  "%s | %s to %s | %s | %s in | %s left";
+				?  "'%s' | %s to %s | %s | +%s -%s"
+				:  "%s | %s to %s | %s | +%s -%s";
 
 				sprintf(buffer,
 					fmt,
@@ -2160,8 +2160,8 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 		else if (in >= 0 && in < 0) {
 			const char *fmt =
 				is_editing
-				?  "'%s' | %s to %s | %s | %s in"
-				:  "%s | %s to %s | %s | %s in";
+				?  "'%s' | %s to %s | %s | +%s"
+				:  "%s | %s to %s | %s | +%s";
 
 			sprintf(buffer, fmt,
 				summary,

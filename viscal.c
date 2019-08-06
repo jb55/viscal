@@ -941,6 +941,9 @@ static int query_span(struct cal *cal, int index_hint, time_t start, time_t end,
 	for (int i=index_hint; i < cal->nevents; i++) {
 		ev = &cal->events[i];
 
+		if (!ev->ical->visible)
+			continue;
+
 		icaltimetype dtstart =
 			icalcomponent_get_dtstart(ev->vevent);
 
@@ -986,12 +989,7 @@ static void move_relative(struct cal *cal, int rel)
 		struct event *ev = &cal->events[hit];
 		vevent_span_timet(ev->vevent, &st, &et);
 
-		if (!ev->ical->visible) {
-			hit = -1;
-		}
-		else {
-			cal->current = st;
-		}
+		cal->current = st;
 	}
 
 	cal->selected_event_ind = hit;

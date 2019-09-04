@@ -23,7 +23,7 @@ $(BIN): viscal.c Makefile
 TAGS:
 	./scripts/mktags libical > $@
 
-check:
+check: $(BIN)
 	echo "write tests!"
 
 clean:

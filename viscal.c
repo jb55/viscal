@@ -1239,6 +1239,9 @@ static void finish_editing(struct cal *cal)
 
 	// leave edit mode, clear inserting flag
 	cal->flags &= ~(CAL_CHANGING | CAL_INSERTING);
+
+	// save the calendar
+	save_calendar(event->ical);
 }
 
 static void append_str_edit_buffer(const char *src)

@@ -1206,6 +1206,24 @@ static void open_below(struct cal *cal)
 	insert_event(cal, et, push_to, ev->ical);
 }
 
+
+static void save_calendar(struct ical *calendar)
+{
+	// TODO: caldav saving
+	assert(calendar->source == SOURCE_FILE);
+	printf("DEBUG saving %s\n", calendar->source_location);
+
+	const char *str =
+		icalcomponent_as_ical_string_r(calendar->calendar);
+
+	FILE *fd = fopen(calendar->source_location, "w+");
+
+	fwrite(str, strlen(str), 1, fd);
+
+	fclose(fd);
+}
+
+
 static void finish_editing(struct cal *cal)
 {
 	struct event *event = get_selected_event(cal);
@@ -1299,22 +1317,6 @@ static void move_event_action(struct cal *cal, int direction)
 		return;
 
 	move_event(event, direction * cal->repeat * SMALLEST_TIMEBLOCK);
-}
-
-static void save_calendar(struct ical *calendar)
-{
-	// TODO: caldav saving
-	assert(calendar->source == SOURCE_FILE);
-	printf("DEBUG saving %s\n", calendar->source_location);
-
-	const char *str =
-		icalcomponent_as_ical_string_r(calendar->calendar);
-
-	FILE *fd = fopen(calendar->source_location, "w+");
-
-	fwrite(str, strlen(str), 1, fd);
-
-	fclose(fd);
 }
 
 static void save_calendars(struct cal *cal)

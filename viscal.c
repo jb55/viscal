@@ -2347,7 +2347,7 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 	cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
 	cairo_set_font_size(cr, 12);
 	cairo_select_font_face(cr,
-				"sans",
+				"terminus",
 				CAIRO_FONT_SLANT_NORMAL,
 				CAIRO_FONT_WEIGHT_NORMAL);
 

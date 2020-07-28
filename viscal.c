@@ -361,11 +361,11 @@ static int find_event_within(struct cal *cal, time_t target, int seconds_range)
 	assert(!"shouldn't get here");
 }
 
-static void select_closest_to_now(struct cal *cal)
-{
-	time_t now = time(NULL);
-	cal->selected_event_ind = find_event_within(cal, now, 0);
-}
+/* static void select_closest_to_now(struct cal *cal) */
+/* { */
+/* 	time_t now = time(NULL); */
+/* 	cal->selected_event_ind = find_event_within(cal, now, 0); */
+/* } */
 
 
 static void set_edit_buffer(const char *src)
@@ -2144,27 +2144,30 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 		format_time_duration(duration_format_out,
 				     sizeof(duration_format), out);
 
+		#define SHARED_EDIT "'%s' | %s to %s | +%s"
+		#define SHARED      "%s | %s to %s | +%s"
+
 		if (out >= 0 && in >= 0 && out < len) {
 			const char *fmt =
 				is_editing
-				?  "'%s' | %s to %s | %s | +%s -%s"
-				:  "%s | %s to %s | %s | +%s -%s";
+				?  SHARED_EDIT " -%s | %s"
+				:  SHARED      " -%s | %s";
 
 				sprintf(buffer,
 					fmt,
 					summary,
 					start_time,
 					end_time,
-					duration_format,
 					duration_format_in,
-					duration_format_out
+					duration_format_out,
+					duration_format
 					);
 		}
 		else if (in >= 0 && in < 0) {
 			const char *fmt =
 				is_editing
-				?  "'%s' | %s to %s | %s | +%s"
-				:  "%s | %s to %s | %s | +%s";
+				?  SHARED_EDIT " | %s"
+				:  SHARED     "%s | %s to %s | %s | +%s";
 
 			sprintf(buffer, fmt,
 				summary,

@@ -787,6 +787,13 @@ static time_t get_hour(time_t current)
 	return mktime(&current_tm);
 }
 
+static int get_minute(time_t current)
+{
+	struct tm current_tm;
+	current_tm = *localtime(&current);
+	return current_tm.tm_min;
+}
+
 static time_t get_smallest_closest_timeblock(time_t current, int round_by)
 {
 	struct tm current_tm;
@@ -2299,6 +2306,28 @@ draw_selection (cairo_t *cr, struct cal *cal)
 
 }
 
+static void draw_current_minute(cairo_t *cr, struct cal *cal)
+{
+	char buffer[32] = {0};
+	time_t now;
+	time(&now);
+
+	double y = calendar_time_to_loc_absolute(cal, now);
+	const double col = 0.4; // TODO: duplication from draw_hours
+
+	int min = get_minute(now);
+
+	format_margin_time(buffer, 32, min);
+
+	cairo_set_source_rgb (cr, 1.0, 0, 0);
+
+	cairo_move_to(cr, g_lmargin - (g_margin_time_w + EVPAD),
+		      y+(TXTPAD/2.0)-2.0);
+
+	cairo_show_text(cr, buffer);
+	cairo_set_source_rgb (cr, col, col, col);
+}
+
 static int
 draw_calendar (cairo_t *cr, struct cal *cal) {
 	int i, width, height;
@@ -2309,6 +2338,7 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 	cairo_move_to(cr, cal->x, cal->y);
 	draw_background(cr, width, height);
 	draw_hours(cr, cal);
+	draw_current_minute(cr, cal);
 
 	struct event *selected =
 		get_selected_event(cal);

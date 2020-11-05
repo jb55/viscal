@@ -3,6 +3,7 @@ BIN ?= viscal
 
 all: $(BIN)
 
+PREFIX ?= /usr
 DEPS=libical gtk+-3.0
 
 CFLAGS=-Wall \
@@ -14,6 +15,10 @@ CFLAGS=-Wall \
 			 -ggdb \
 			 -lm \
        `pkg-config --cflags --libs $(DEPS)`
+
+install: $(BIN)
+	mkdir -p $(PREFIX)/bin
+	cp $(BIN) $(PREFIX)/bin
 
 tags: TAGS
 

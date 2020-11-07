@@ -120,6 +120,7 @@ struct cal {
 	int refresh_events;
 	int x, y, mx, my;
 	int gutter_height;
+	int font_size;
 	double zoom, zoom_at;
 	icaltimezone *tz;
 
@@ -199,6 +200,7 @@ calendar_create(struct cal *cal) {
 	cal->target = -1;
 	cal->chord = 0;
 	cal->gutter_height = 40;
+	cal->font_size = 16;
 	cal->timeblock_step = 15;
 	cal->timeblock_size = 30;
 	cal->flags = 0;
@@ -1647,6 +1649,16 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			save_calendars(cal);
 			break;
 
+		// Ctrl--
+		case 0x2d:
+			cal->font_size -= 2;
+			break;
+
+		// Ctrl-=
+		case 0x3d:
+			cal->font_size += 2;
+			break;
+
 		// tab
 		case '\t':
 			next_calendar(cal);
@@ -2378,9 +2390,9 @@ on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data)
 	}
 
 	cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
-	cairo_set_font_size(cr, 12);
+	cairo_set_font_size(cr, cal->font_size);
 	cairo_select_font_face(cr,
-				"terminus",
+				"sans",
 				CAIRO_FONT_SLANT_NORMAL,
 				CAIRO_FONT_WEIGHT_NORMAL);
 

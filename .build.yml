@@ -1,0 +1,9 @@
+image: nixos/unstable
+repositories:
+  nixpkgs: https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz
+sources:
+  - https://git.sr.ht/~jb55/viscal
+tasks:
+  - build: |
+      cd viscal
+      nix-build

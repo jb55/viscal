@@ -25,8 +25,8 @@ tags: TAGS
 $(BIN): viscal.c Makefile
 	$(CC) $(CFLAGS) -o $@ $<
 
-TAGS:
-	./scripts/mktags libical > $@
+tags:
+	ctags *.{c,h} > $@
 
 check: $(BIN)
 	echo "write tests!"

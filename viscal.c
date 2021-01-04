@@ -1152,7 +1152,6 @@ static void select_dir(struct cal *cal, int rel)
 
 static void select_up(struct cal *cal) 
 {
-	printf("select_up repeat %d\n", cal->repeat);
 	for (int i = 0; i < cal->repeat; i++) {
 		select_dir(cal, -1);
 	}

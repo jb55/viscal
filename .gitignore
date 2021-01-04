@@ -1,3 +1,9 @@
 calendar
-TAGS
+/TAGS
 /viscal
+/.build-result
+/*.ics
+/open-my-cals
+/result
+/sync
+/tags

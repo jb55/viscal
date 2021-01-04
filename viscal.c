@@ -340,7 +340,6 @@ static int find_event_within(struct cal *cal, time_t target, int seconds_range)
 
 	if (cal->nevents == 0)
 		return -1;
-
 	else if (cal->nevents == 1)
 		return 0;
 
@@ -764,20 +763,40 @@ static int timeblock_size(struct cal *cal)
 	return cal->timeblock_size;
 }
 
+static int find_closest_event(struct cal *cal, time_t near, int rel)
+{
+	struct event *ev;
+	int is_up, ind;
+	time_t start, end, diff, prev;
+
+	is_up = rel == -1;
+	prev = near;
+
+	if (cal->nevents == 0)
+		return -1;
+	else if (cal->nevents == 1)
+		return 0;
+
+	for (int i = cal->nevents-1; i >= 0; i--) {
+		ev = &cal->events[i];
+		vevent_span_timet(ev->vevent, &start, &end);
+
+		if (end <= near) {
+			ind = is_up ? i : i+1;
+			return ind == cal->nevents ? -1 : ind;
+		}
+	}
+
+	return 0;
+}
 
 static inline int relative_selection(struct cal *cal, int rel)
 {
-	/* if (cal->selected_event_ind == -1) { */
-	/* 	// TODO: bias direction */
-	/* 	return find_event_within(cal, cal->current); */
-	/* } */
+	if (cal->selected_event_ind == -1) {
+		return find_closest_event(cal, cal->current, rel);
+	}
 
 	return clamp(cal->selected_event_ind + rel, 0, cal->nevents - 1);
-}
-
-static void select_up(struct cal *cal)
-{
-	cal->selected_event_ind = relative_selection(cal, -cal->repeat);
 }
 
 static time_t get_hour(time_t current)
@@ -1108,13 +1127,43 @@ static void shrink_selection(struct cal *cal)
 	expand_selection_relative(cal, -1);
 }
 
+static void select_event(struct cal *cal, int ind)
+{
+	time_t start ,end;
+	struct event *ev;
+
+	cal->selected_event_ind = ind;
+
+	if (ind != -1) {
+		ev = &cal->events[ind];
+		vevent_span_timet(ev->vevent, &start, NULL);
+		cal->current = start;
+	}
+}
+
+static void select_dir(struct cal *cal, int rel)
+{
+	int ind = relative_selection(cal, rel);
+	select_event(cal, ind);
+	if (!timeline_in_view(cal)) {
+		center_view(cal);
+	}
+}
+
+static void select_up(struct cal *cal) 
+{
+	printf("select_up repeat %d\n", cal->repeat);
+	for (int i = 0; i < cal->repeat; i++) {
+		select_dir(cal, -1);
+	}
+}
 
 static void select_down(struct cal *cal)
 {
-	cal->selected_event_ind =
-		relative_selection(cal, cal->repeat);
+	for (int i = 0; i < cal->repeat; i++) {
+		select_dir(cal, 1);
+	}
 }
-
 
 // TODO: make zoom_amt configurable
 static const int zoom_amt = 1.5;
@@ -1729,10 +1778,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			set_chord(cal, key);
 		}
 
-		if (key != 0) {
-			/* printf("DEBUG resetting repeat\n"); */
-			cal->repeat = 1;
-		}
+		//if (key != 0) {
+		//	printf("DEBUG resetting repeat\n");
+		//	cal->repeat = 1;
+		//}
 
 		break;
 	default:

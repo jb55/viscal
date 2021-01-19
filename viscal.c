@@ -270,6 +270,20 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 	}
 }
 
+static void select_event(struct cal *cal, int ind)
+{
+	time_t start ,end;
+	struct event *ev;
+
+	cal->selected_event_ind = ind;
+
+	if (ind != -1) {
+		ev = &cal->events[ind];
+		vevent_span_timet(ev->vevent, &start, NULL);
+		cal->current = start;
+	}
+}
+
 /* static int */
 /* vevent_in_span(icalcomponent *vevent, time_t start, time_t end) { */
 /* 	/\* printf("vevent_in_span span.start %d span.end %d start %d end %d\n", *\/ */
@@ -460,7 +474,7 @@ static void events_for_view(struct cal *cal, time_t start, time_t end)
 	if (cal->select_after_sort) {
 		for (i = 0; i < cal->nevents; i++) {
 			if (cal->events[i].vevent == cal->select_after_sort) {
-				cal->selected_event_ind = i;
+				select_event(cal, i);
 				// HACK: we might not always want to do this...
 				edit_mode(cal, 0);
 				break;
@@ -1125,20 +1139,6 @@ static void expand_selection(struct cal *cal)
 static void shrink_selection(struct cal *cal)
 {
 	expand_selection_relative(cal, -1);
-}
-
-static void select_event(struct cal *cal, int ind)
-{
-	time_t start ,end;
-	struct event *ev;
-
-	cal->selected_event_ind = ind;
-
-	if (ind != -1) {
-		ev = &cal->events[ind];
-		vevent_span_timet(ev->vevent, &start, NULL);
-		cal->current = start;
-	}
 }
 
 static void select_dir(struct cal *cal, int rel)
@@ -2211,14 +2211,14 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 		format_time_duration(duration_format_out,
 				     sizeof(duration_format), out);
 
-		#define SHARED_EDIT "'%s' | %s to %s | +%s"
-		#define SHARED      "%s | %s to %s | +%s"
+		#define SHARED_EDIT "'%s' | %s-%s +%s"
+		#define SHARED      "%s | %s-%s +%s"
 
 		if (out >= 0 && in >= 0 && out < len) {
 			const char *fmt =
 				is_editing
-				?  SHARED_EDIT " -%s | %s"
-				:  SHARED      " -%s | %s";
+				?  SHARED_EDIT "-%s %s"
+				:  SHARED      "-%s %s";
 
 				sprintf(buffer,
 					fmt,
@@ -2234,7 +2234,7 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 			const char *fmt =
 				is_editing
 				?  SHARED_EDIT " | %s"
-				:  SHARED     "%s | %s to %s | %s | +%s";
+				:  SHARED     "%s | %s-%s %s +%s";
 
 			sprintf(buffer, fmt,
 				summary,
@@ -2247,8 +2247,8 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 		else {
 			const char *fmt =
 				is_editing
-				? "'%s' | %s to %s | %s"
-				: "%s | %s to %s | %s";
+				? "'%s' | %s-%s %s"
+				: "%s | %s-%s %s";
 
 			sprintf(buffer,
 				fmt,

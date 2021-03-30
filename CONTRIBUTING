@@ -9,6 +9,14 @@ Setup
 -----
 
     git config format.subjectPrefix 'PATCH viscal'
+    git config sendemail.to '~jb55/public-inbox@lists.sr.ht'
+
+
+Issues
+------
+
+Take a look at the `todo` folder to see the list of outstanding issues. Please
+send bug reports and feature requests to the mailing list and/or my email.
 
 
 Sending a patch

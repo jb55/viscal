@@ -1,3 +1,0 @@
-n: crash on ctrl-j
-d: If you do ctrl-j on the last element there is a crash
-t: crash

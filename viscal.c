@@ -2510,9 +2510,9 @@ int main(int argc, char *argv[])
 			ical->color.r = rand_0to1() > 0.5 ? 1.0 : 0;
 			ical->color.g = rand_0to1() > 0.5 ? 1.0 : 0;
 			ical->color.b = rand_0to1() > 0.5 ? 1.0 : 0;
-			ical->color.a = 1.0;
+			ical->color.a = 0.9;
 
-			saturate(&ical->color, 0.4);
+			saturate(&ical->color, 0.5);
 		}
 		else {
 			printf("failed to load calendar\n");

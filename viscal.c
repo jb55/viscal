@@ -871,7 +871,7 @@ static void align_hour(struct cal *cal)
 	cal->current = hour;
 }
 
-static void move_event_to(struct event *event, time_t to)
+static void move_event_to(struct cal *cal, struct event *event, time_t to)
 {
 	time_t st, et;
 
@@ -885,6 +885,8 @@ static void move_event_to(struct event *event, time_t to)
 
 	icalcomponent_set_dtstart(event->vevent, dtstart);
 	icalcomponent_set_dtend(event->vevent, dtend);
+
+	calendar_refresh_events(cal);
 }
 
 static void move_event_now(struct cal *cal)
@@ -898,7 +900,7 @@ static void move_event_now(struct cal *cal)
 	time_t closest =
 		get_smallest_closest_timeblock(time(NULL), SMALLEST_TIMEBLOCK);
 
-	move_event_to(event, closest);
+	move_event_to(cal, event, closest);
 }
 
 static int time_in_view(struct cal *cal, time_t time) {
@@ -1177,35 +1179,53 @@ static void zoom_out(struct cal *cal) {
 		zoom(cal, zoom_amt);
 }
 
-static void push_down(struct cal *cal, int from, int ind, time_t push_to)
+static void push_down(struct cal *cal, int ind, time_t push_to)
 {
-	time_t f_st, from_event_et, st, et, new_et;
-	struct event *ev, *fromev;
-
-	fromev = &cal->events[from];
-	vevent_span_timet(fromev->vevent, &f_st, &from_event_et);
-
-	// why would we want to push to before the from end time?
-	assert(push_to >= from_event_et);
+	time_t st, et, new_et;
+	struct event *ev;
 
 	ev = &cal->events[ind];
-
 	vevent_span_timet(ev->vevent, &st, &et);
 
 	if (st >= push_to)
 		return;
 
-	new_et = et + (push_to - st);
-	move_event_to(ev, push_to);
+	new_et = et - st + push_to;
+	move_event_to(cal, ev, push_to);
 
 	if (ind + 1 > cal->nevents - 1)
 		return;
 
 	// push rest
-	push_down(cal, ind, ind+1, new_et);
+	push_down(cal, ind+1, new_et);
 }
 
-static void pushmove_down(struct cal *cal) {
+static void push_up(struct cal *cal, int ind, time_t push_to)
+{
+	time_t st, et, a_st, a_et, new_st;
+	struct event *ev, *above;
+
+	// our event
+	ev = &cal->events[ind];
+	vevent_span_timet(ev->vevent, &st, &et);
+
+	move_event_to(cal, ev, push_to);
+
+	if (ind - 1 < 0)
+		return;
+
+	// above event
+	above = &cal->events[ind - 1 < 0 ? 0 : ind - 1];
+	vevent_span_timet(above->vevent, &a_st, &a_et);
+
+	if (push_to > a_et)
+		return;
+
+	new_st = push_to - (a_et - a_st);
+	push_up(cal, ind-1, new_st);
+}
+
+static void pushmove_dir(struct cal *cal, int dir) {
 	time_t st, et, push_to, new_st;
 	struct event *ev;
 
@@ -1219,13 +1239,20 @@ static void pushmove_down(struct cal *cal) {
 	// TODO: configurable?
 	static const int adjust = SMALLEST_TIMEBLOCK * 60;
 
-	new_st = st + adjust;
-	push_to = new_st + (et - st);
+	push_to = st + (adjust * dir);
 
-	move_event_to(ev, new_st);
+	if (dir == 1)
+		push_down(cal, cal->selected_event_ind, push_to);
+	else
+		push_up(cal, cal->selected_event_ind, push_to);
+}
 
-	push_down(cal, cal->selected_event_ind, cal->selected_event_ind+1,
-		  push_to);
+static void pushmove_down(struct cal *cal) {
+	pushmove_dir(cal, 1);
+}
+
+static void pushmove_up(struct cal *cal) {
+	pushmove_dir(cal, -1);
 }
 
 static void open_below(struct cal *cal)
@@ -1255,7 +1282,7 @@ static void open_below(struct cal *cal)
 		if (ind == -1)
 			break;
 		else
-			push_down(cal, cal->selected_event_ind, ind, push_to);
+			push_down(cal, ind, push_to);
 	}
 
 	set_current_calendar(cal, ev->ical);
@@ -1747,6 +1774,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 		// Ctrl-j
 		case 0xa:
 			pushmove_down(cal);
+			break;
+
+		case 0xb:
+			pushmove_up(cal);
 			break;
 
 		case 'j':

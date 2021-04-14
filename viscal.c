@@ -1225,6 +1225,23 @@ static void push_up(struct cal *cal, int ind, time_t push_to)
 	push_up(cal, ind-1, new_st);
 }
 
+static void push_expand_selection(struct cal *cal)
+{
+	time_t st, et, push_to, new_st;
+	struct event *ev;
+
+	expand_selection(cal);
+
+	ev = get_selected_event(cal);
+
+	if (ev == NULL)
+		return;
+
+	vevent_span_timet(ev->vevent, &st, &et);
+
+	push_down(cal, cal->selected_event_ind+1, et);
+}
+
 static void pushmove_dir(struct cal *cal, int dir) {
 	time_t st, et, push_to, new_st;
 	struct event *ev;
@@ -1786,6 +1803,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 
 		case 'k':
 			move_up(cal, cal->repeat);
+			break;
+
+		case 0x16:
+			push_expand_selection(cal);
 			break;
 
 		case 'v':

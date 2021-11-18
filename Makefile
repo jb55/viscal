@@ -26,7 +26,7 @@ $(BIN): viscal.c Makefile
 	$(CC) $(CFLAGS) -o $@ $<
 
 tags:
-	ctags *.{c,h} > $@
+	ctags *.c > $@
 
 check: $(BIN)
 	echo "write tests!"

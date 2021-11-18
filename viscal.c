@@ -2208,16 +2208,21 @@ static double get_evheight(double evheight)
 static void
 draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 		   int is_date, int is_selected, double height, const char *summary,
-		   struct event *sel, double x, double y)
+		   struct event *sel, double x, double y, union rgba color)
 {
 	// TODO: event text color
 	static char buffer[1024] = {0};
-	static const double txtc = 0.2;
 	static char bsmall[32] = {0};
 	static char bsmall2[32] = {0};
+	const char *fmt;
 	char *start_time;
 	char *end_time;
 	time_t len = et - st;
+
+	double c = 0.9;
+	color.r = c;
+	color.g = c;
+	color.b = c;
 
 	cairo_text_extents_t exts;
 
@@ -2225,98 +2230,62 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 
 	summary = is_editing ? g_editbuf : summary;
 
-	cairo_set_source_rgb(cr, txtc, txtc, txtc);
+	cairo_set_source_rgb(cr, color.r, color.g, color.b);
+
 	if (is_date) {
 		sprintf(buffer, is_selected ? "'%s'" : "%s", summary);
 		cairo_text_extents(cr, buffer, &exts);
 		cairo_move_to(cr, x + EVPAD, y + (height / 2.0)
 						+ ((double)exts.height / 2.0));
 		cairo_show_text(cr, buffer);
+
+		return;
 	}
-	/* else if (len > 30*60) { */
-	/*   format_locale_timet(bsmall, 32, st); */
-	/*   format_locale_timet(bsmall2, 32, et); */
-	/*   sprintf(buffer, "%s — %s", bsmall, bsmall2); */
-	/*   cairo_show_text(cr, buffer); */
-	/*   cairo_move_to(cr, x + EVPAD, y + EVPAD + TXTPAD * 2); */
-	/*   cairo_show_text(cr, summary); */
-	/* } */
-	else {
-		start_time = format_locale_timet(bsmall, 32, st);
-		end_time   = format_locale_timet(bsmall2, 32, et);
-		// TODO: configurable event format
-		char duration_format[32] = {0};
-		char duration_format_in[32] = {0};
-		char duration_format_out[32] = {0};
-		time_t now, in, out;
-		time(&now);
 
-		in = now - st;
-		out = et - now;
+	start_time = format_locale_timet(bsmall, 32, st);
+	end_time   = format_locale_timet(bsmall2, 32, et);
+	// TODO: configurable event format
+	char duration_format[32] = {0};
+	char duration_format_in[32] = {0};
+	char duration_format_out[32] = {0};
+	time_t now, in, out;
+	time(&now);
 
-		format_time_duration(duration_format,
-				     sizeof(duration_format), len);
+	in = now - st;
+	out = et - now;
 
-		format_time_duration(duration_format_in,
-				     sizeof(duration_format), in);
+	format_time_duration(duration_format,
+			     sizeof(duration_format), len);
 
-		format_time_duration(duration_format_out,
-				     sizeof(duration_format), out);
+	format_time_duration(duration_format_in,
+			     sizeof(duration_format), in);
 
-		#define SHARED_EDIT "'%s' | %s-%s +%s"
-		#define SHARED      "%s | %s-%s +%s"
+	format_time_duration(duration_format_out,
+			     sizeof(duration_format), out);
 
-		if (out >= 0 && in >= 0 && out < len) {
-			const char *fmt =
-				is_editing
-				?  SHARED_EDIT "-%s %s"
-				:  SHARED      "-%s %s";
+	sprintf(buffer, is_editing ? "'%s'" : "%s", summary);
+	cairo_text_extents(cr, buffer, &exts);
+	double ey = height < exts.height
+		? y + TXTPAD - EVPAD
+		: y + TXTPAD + EVPAD;
+	cairo_move_to(cr, x + EVPAD, ey);
+	cairo_show_text(cr, buffer);
 
-				sprintf(buffer,
-					fmt,
-					summary,
-					start_time,
-					end_time,
-					duration_format_in,
-					duration_format_out,
-					duration_format
-					);
-		}
-		else if (in >= 0 && in < 0) {
-			const char *fmt =
-				is_editing
-				?  SHARED_EDIT " | %s"
-				:  SHARED     "%s | %s-%s %s +%s";
-
-			sprintf(buffer, fmt,
-				summary,
-				start_time,
-				end_time,
-				duration_format,
-				duration_format_in
-				);
-		}
-		else {
-			const char *fmt =
-				is_editing
-				? "'%s' | %s-%s %s"
-				: "%s | %s-%s %s";
-
-			sprintf(buffer,
-				fmt,
-				summary,
-				start_time,
-				end_time,
-				duration_format);
-		}
-
-		cairo_text_extents(cr, buffer, &exts);
-		double ey = height < exts.height
-			? y + TXTPAD - EVPAD
-			: y + TXTPAD + EVPAD;
-		cairo_move_to(cr, x + EVPAD, ey);
-		cairo_show_text(cr, buffer);
+	if (out >= 0 && in >= 0 && out < len) {
+		sprintf(buffer, "%s-%s +%s-%s %s", start_time, end_time,
+			duration_format_in, duration_format_out, duration_format);
+	} else if (in >= 0 && in < 0) {
+		sprintf(buffer, "%s-%s %s +%s", start_time, end_time,
+			duration_format, duration_format_in);
+	} else {
+		sprintf(buffer, "%s-%s %s", start_time, end_time, duration_format);
 	}
+
+	ey += exts.height + 4;
+
+	cairo_move_to(cr, x + EVPAD, ey);
+	cairo_set_source_rgb(cr, color.r, color.g, color.b);
+	cairo_show_text(cr, buffer);
 }
 
 static void
@@ -2365,7 +2334,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 	draw_rectangle(cr, ev->width, evheight);
 	cairo_fill(cr);
 	draw_event_summary(cr, cal, st, et, dtstart.is_date, is_selected,
-			   evheight, summary, sel, x, y);
+			   evheight, summary, sel, x, y, c);
 }
 
 
@@ -2414,7 +2383,7 @@ draw_selection (cairo_t *cr, struct cal *cal)
 	draw_rectangle(cr, cal->width, height);
 	cairo_fill(cr);
 	draw_event_summary(cr, cal, cal->current, et, is_date, is_selected,
-			   height, summary, NULL, sx, sy);
+			   height, summary, NULL, sx, sy, ((union rgba){0.1,0.1,0.1}));
 
 }
 
@@ -2564,7 +2533,7 @@ int main(int argc, char *argv[])
 			ical->color.b = rand_0to1() > 0.5 ? 1.0 : 0;
 			ical->color.a = 0.9;
 
-			saturate(&ical->color, 0.5);
+			saturate(&ical->color, 0.35);
 		}
 		else {
 			printf("failed to load calendar\n");

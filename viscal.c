@@ -48,6 +48,7 @@ enum event_flags {
     EV_SELECTED    = 1 << 0
   , EV_HIGHLIGHTED = 1 << 1
   , EV_DRAGGING    = 1 << 2
+  , EV_IMMOVABLE   = 1 << 3
 };
 
 enum cal_flags {
@@ -82,7 +83,7 @@ struct event {
 	icalcomponent *vevent;
 	struct ical *ical;
 
-	enum event_flags flags;
+	int flags;
 	// set on draw
 	double width, height;
 	double x, y;
@@ -468,7 +469,7 @@ static void events_for_view(struct cal *cal, time_t start, time_t end)
 	}
 
 	printf("DEBUG sorting\n");
-	qsort(cal->events, cal->nevents, sizeof(*cal->events), sort_event);
+	qsort(cal->events, cal->nevents, sizeof(struct event), sort_event);
 
 	// useful for selecting a new event after insertion
 	if (cal->select_after_sort) {
@@ -1133,6 +1134,16 @@ static void expand_selection_relative(struct cal *cal, int sign)
 	}
 }
 
+static void lock_selection(struct cal *cal)
+{
+	printf("locking event\n");
+	struct event *event = get_selected_event(cal);
+	if (!event)
+		return;
+
+	event->flags ^= EV_IMMOVABLE;
+}
+
 static void expand_selection(struct cal *cal)
 {
 	expand_selection_relative(cal, 1);
@@ -1191,9 +1202,15 @@ static void push_down(struct cal *cal, int ind, time_t push_to)
 		return;
 
 	new_et = et - st + push_to;
+
+	if (ind + 1 >= cal->nevents) {
+		if (cal->events[ind+1].flags & EV_IMMOVABLE)
+			return;
+	}
+
 	move_event_to(cal, ev, push_to);
 
-	if (ind + 1 > cal->nevents - 1)
+	if (ind + 1 >= cal->nevents)
 		return;
 
 	// push rest
@@ -1809,6 +1826,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			push_expand_selection(cal);
 			break;
 
+		case 'l':
+			lock_selection(cal);
+			break;
+
 		case 'v':
 			expand_selection(cal);
 			break;
@@ -1910,13 +1931,12 @@ on_press(GtkWidget *widget, GdkEventButton *ev, gpointer user_data) {
 	return 1;
 }
 
-static struct event*
-event_any_flags(struct event *events, int nevents, int flag) {
-  for (int i = 0; i < nevents; i++) {
-    if ((events[i].flags & flag) != 0)
-      return &events[i];
-  }
-  return NULL;
+static struct event* event_any_flags(struct event *events, int nevents, int flag) {
+	for (int i = 0; i < nevents; i++) {
+		if ((events[i].flags & flag) != 0)
+			return &events[i];
+	}
+	return NULL;
 }
 
 static int
@@ -2294,6 +2314,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 {
 	union rgba c = ev->ical->color;
 
+	int is_locked = ev->flags & EV_IMMOVABLE;
 	int is_dragging = target == ev && (cal->flags & CAL_DRAGGING);
 	int is_selected = sel == ev;
 	icaltimetype dtstart =
@@ -2311,6 +2332,10 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 
 	if (is_dragging || ev->flags & EV_HIGHLIGHTED) {
 		c.a *= 0.95;
+	}
+
+	if (is_locked) {
+		c.r *= 0.8;
 	}
 
 	// grid logic

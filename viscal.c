@@ -2220,6 +2220,17 @@ static void saturate(union rgba *c, double change)
 	c->b = P+((c->b)-P)*change;
 }
 
+static void desaturate(union rgba *c, double change)
+{
+	double L = Pr * c->r + 
+		   Pg * c->g + 
+		   Pb * c->b;
+
+	c->r += change * (L - c->r);
+	c->g += change * (L - c->g);
+	c->b += change * (L - c->b);
+}
+
 static double get_evheight(double evheight)
 {
 	return max(1.0, evheight - EVMARGIN);
@@ -2239,6 +2250,7 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 	char *end_time;
 	time_t len = et - st;
 
+	//saturate(&color, 0.8);
 	double c = 0.9;
 	color.r = c;
 	color.g = c;
@@ -2304,7 +2316,7 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 	ey += exts.height + 4;
 
 	cairo_move_to(cr, x + EVPAD, ey);
-	cairo_set_source_rgb(cr, color.r, color.g, color.b);
+	cairo_set_source_rgb(cr, color.r * 0.9, color.g * 0.9, color.b * 0.9);
 	cairo_show_text(cr, buffer);
 }
 
@@ -2313,6 +2325,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 	    struct event *sel, struct event *target)
 {
 	union rgba c = ev->ical->color;
+	saturate(&c, 0.4);
 
 	int is_locked = ev->flags & EV_IMMOVABLE;
 	int is_dragging = target == ev && (cal->flags & CAL_DRAGGING);
@@ -2353,13 +2366,13 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 
 	// TODO: selected event rendering
 	if (is_selected)
-		saturate(&c, 0.2);
+		saturate(&c, 0.1);
 
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);
 	cairo_fill(cr);
 	draw_event_summary(cr, cal, st, et, dtstart.is_date, is_selected,
-			   evheight, summary, sel, x, y, c);
+			   evheight, summary, sel, x, y, ev->ical->color);
 }
 
 
@@ -2558,7 +2571,7 @@ int main(int argc, char *argv[])
 			ical->color.b = rand_0to1() > 0.5 ? 1.0 : 0;
 			ical->color.a = 0.9;
 
-			saturate(&ical->color, 0.35);
+			//saturate(&ical->color, 0.35);
 		}
 		else {
 			printf("failed to load calendar\n");

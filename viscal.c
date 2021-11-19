@@ -2222,7 +2222,7 @@ format_time_duration(char *buf, int bufsize, int seconds)
 #define  Pr  .299
 #define  Pg  .587
 #define  Pb  .114
-static void saturate(union rgba *c, double change)
+static void desaturate(union rgba *c, double change)
 {
 	double  P=sqrt(
 		(c->r)*(c->r)*Pr+
@@ -2234,7 +2234,7 @@ static void saturate(union rgba *c, double change)
 	c->b = P+((c->b)-P)*change;
 }
 
-static void desaturate(union rgba *c, double change)
+static void saturate(union rgba *c, double change)
 {
 	double L = Pr * c->r + 
 		   Pg * c->g + 
@@ -2264,7 +2264,7 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 	char *end_time;
 	time_t len = et - st;
 
-	//saturate(&color, 0.8);
+	//desaturate(&color, 0.8);
 	double c = 0.9;
 	color.r = c;
 	color.g = c;
@@ -2340,7 +2340,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 	    struct event *sel, struct event *target)
 {
 	union rgba c = ev->ical->color;
-	saturate(&c, 0.4);
+	desaturate(&c, 0.4);
 
 	int is_locked = ev->flags & EV_IMMOVABLE;
 	int is_dragging = target == ev && (cal->flags & CAL_DRAGGING);

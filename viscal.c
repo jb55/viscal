@@ -2381,7 +2381,7 @@ draw_event (cairo_t *cr, struct cal *cal, struct event *ev,
 
 	// TODO: selected event rendering
 	if (is_selected)
-		saturate(&c, 0.1);
+		c.r *= 0.8;
 
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	draw_rectangle(cr, ev->width, evheight);

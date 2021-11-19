@@ -1,4 +1,6 @@
 calendar
+/.buildcmd
+/.direnv
 /TAGS
 /viscal
 /.build-result

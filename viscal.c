@@ -439,6 +439,16 @@ static void edit_mode(struct cal *cal, int flags)
 }
 
 
+static void print_flags(struct cal *cal)
+{
+	int i;
+
+	printf("flags: ");
+	for (i = 0; i < cal->nevents; i++) {
+		printf("%d ", cal->events[i].flags);
+	}
+	printf("\n");
+}
 
 static void events_for_view(struct cal *cal, time_t start, time_t end)
 {
@@ -468,8 +478,12 @@ static void events_for_view(struct cal *cal, time_t start, time_t end)
 		}
 	}
 
+	print_flags(cal);
+
 	printf("DEBUG sorting\n");
 	qsort(cal->events, cal->nevents, sizeof(struct event), sort_event);
+
+	print_flags(cal);
 
 	// useful for selecting a new event after insertion
 	if (cal->select_after_sort) {

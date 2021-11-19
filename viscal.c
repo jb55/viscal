@@ -2315,8 +2315,9 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 
 	ey += exts.height + 4;
 
+	double tadj = 0.8;
 	cairo_move_to(cr, x + EVPAD, ey);
-	cairo_set_source_rgb(cr, color.r * 0.9, color.g * 0.9, color.b * 0.9);
+	cairo_set_source_rgb(cr, color.r * tadj, color.g * tadj, color.b * tadj);
 	cairo_show_text(cr, buffer);
 }
 

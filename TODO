@@ -1,7 +1,14 @@
-O open-above 
-dd/x should copy. need copy/paste buffer
+O open-above @key
+dd/x @key should copy. need copy/paste buffer
 unmovable events, cant push them down
 sdl backend
-swap events
-ctrl-h backespace
+swap event @key
+ctrl-h backspace @key
 ignore selection size when moving up or down
+smooth @scroll
+full page @scroll with d/u
+mousewheel should smooth @scroll
+@key + mousewheel should zoom
+figure out sorting @bug
+custom themes
+default calendar when opening without arguments

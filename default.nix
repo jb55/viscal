@@ -7,6 +7,6 @@ stdenv.mkDerivation {
   makeFlags = "PREFIX=$(out)";
 
   src = ./.;
-  nativeBuildInputs = [ clang pkg-config gdb ];
+  nativeBuildInputs = [ clang pkg-config ];
   buildInputs = [ gtk3 cairo glib libical ];
 }

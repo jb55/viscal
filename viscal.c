@@ -273,7 +273,7 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 
 static void select_event(struct cal *cal, int ind)
 {
-	time_t start ,end;
+	time_t start;
 	struct event *ev;
 
 	cal->selected_event_ind = ind;
@@ -796,7 +796,7 @@ static int find_closest_event(struct cal *cal, time_t near, int rel)
 {
 	struct event *ev;
 	int is_up, ind;
-	time_t start, end, diff, prev;
+	time_t start, end, prev;
 
 	is_up = rel == -1;
 	prev = near;
@@ -1258,7 +1258,7 @@ static void push_up(struct cal *cal, int ind, time_t push_to)
 
 static void push_expand_selection(struct cal *cal)
 {
-	time_t st, et, push_to, new_st;
+	time_t st, et;
 	struct event *ev;
 
 	expand_selection(cal);
@@ -1274,7 +1274,7 @@ static void push_expand_selection(struct cal *cal)
 }
 
 static void pushmove_dir(struct cal *cal, int dir) {
-	time_t st, et, push_to, new_st;
+	time_t st, et, push_to;
 	struct event *ev;
 
 	ev = get_selected_event(cal);
@@ -2259,7 +2259,6 @@ draw_event_summary(cairo_t *cr, struct cal *cal, time_t st, time_t et,
 	static char buffer[1024] = {0};
 	static char bsmall[32] = {0};
 	static char bsmall2[32] = {0};
-	const char *fmt;
 	char *start_time;
 	char *end_time;
 	time_t len = et - st;
@@ -2552,7 +2551,7 @@ int main(int argc, char *argv[])
 	GtkWidget *window;
 	GtkWidget *darea;
 	GdkDisplay *display;
-	GdkColor color;
+	GdkRGBA color;
 	char buffer[32];
 	double text_col = 0.6;
 	struct ical *ical;
@@ -2608,6 +2607,7 @@ int main(int argc, char *argv[])
 	color.red = BGCOLOR * 0xffff * 0.6;
 	color.green = BGCOLOR * 0xffff * 0.6;
 	color.blue = BGCOLOR * 0xffff * 0.6;
+	color.alpha = 1.0;
 
 	/* setlocale(LC_TIME, ""); */
 
@@ -2669,7 +2669,7 @@ int main(int argc, char *argv[])
 	gtk_window_set_title(GTK_WINDOW(window), "viscal");
 
 	// TODO: proper css/gtk styling?
-	gtk_widget_modify_bg(window, GTK_STATE_NORMAL, &color);
+	gtk_widget_override_background_color(window, GTK_STATE_NORMAL, &color);
 	gtk_widget_show_all(window);
 
 	gtk_main();

@@ -1696,6 +1696,7 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 	char key;
 	int hardware_key;
 	int state_changed = 1;
+	int ctrl = 0;
 	static const int scroll_amt = 60*60;
 
 	switch (event->type) {
@@ -1703,8 +1704,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 		key = *event->key.string;
 		hardware_key = event->key.hardware_keycode;
 
-		printf("DEBUG keystring %x %d hw:%d\n",
-		       key, event->key.state, event->key.hardware_keycode);
+		ctrl = event->key.state & GDK_CONTROL_MASK;
+		printf("DEBUG keystring 0x%x %d hw:%d ctrl?:%d\n",
+		       key, event->key.state, event->key.hardware_keycode,
+		       ctrl);
 
 		// Ctrl-tab during editing still switch cal
 		if (key != '\t' && (cal->flags & CAL_CHANGING)) {
@@ -1757,29 +1760,27 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 
 		switch (key) {
 
-		// Ctrl-d
-		case 0x4:
-			cal->scroll += scroll_amt;
+		case 'd':
+			if (ctrl)
+				cal->scroll += scroll_amt;
 			break;
 
 		// Ctrl-u
-		case 0x15:
-			cal->scroll -= scroll_amt;
-			break;
-
-		// Ctrl-s
-		case 0x13:
-			save_calendars(cal);
+		case 'u':
+			if (ctrl)
+				cal->scroll -= scroll_amt;
 			break;
 
 		// Ctrl--
-		case 0x2d:
-			cal->font_size -= 2;
+		case '-':
+			if (ctrl)
+				cal->font_size -= 2;
 			break;
 
 		// Ctrl-=
-		case 0x3d:
-			cal->font_size += 2;
+		case '=':
+			if (ctrl)
+				cal->font_size += 2;
 			break;
 
 		// tab
@@ -1791,7 +1792,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 		case 'c':
 		case 's':
 		case 'S':
-			edit_mode(cal, EDIT_CLEAR);
+			if (key == 's' && ctrl)
+				save_calendars(cal);
+			else
+				edit_mode(cal, EDIT_CLEAR);
 			break;
 
 		case 'A':
@@ -1819,25 +1823,18 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			move_event_action(cal, 1);
 			break;
 
-		// Ctrl-j
-		case 0xa:
-			pushmove_down(cal);
-			break;
-
-		case 0xb:
-			pushmove_up(cal);
-			break;
-
 		case 'j':
-			move_down(cal, cal->repeat);
+			if (ctrl)
+				pushmove_down(cal);
+			else
+				move_down(cal, cal->repeat);
 			break;
 
 		case 'k':
-			move_up(cal, cal->repeat);
-			break;
-
-		case 0x16:
-			push_expand_selection(cal);
+			if (ctrl)
+				pushmove_up(cal);
+			else
+				move_up(cal, cal->repeat);
 			break;
 
 		case 'l':
@@ -1845,7 +1842,10 @@ static gboolean on_keypress (GtkWidget *widget, GdkEvent *event,
 			break;
 
 		case 'v':
-			expand_selection(cal);
+			if (ctrl)
+				push_expand_selection(cal);
+			else
+				expand_selection(cal);
 			break;
 
 		case 'V':

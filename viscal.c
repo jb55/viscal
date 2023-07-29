@@ -2142,9 +2142,9 @@ static void draw_rectangle (cairo_t *cr, double x, double y) {
 
 
 static void draw_background (cairo_t *cr, int width, int height) {
-	cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
-	draw_rectangle (cr, width, height);
-	cairo_fill (cr);
+	cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+	draw_rectangle(cr, width, height);
+	cairo_fill(cr);
 }
 
 
@@ -2435,7 +2435,7 @@ draw_selection (cairo_t *cr, struct cal *cal)
 	draw_rectangle(cr, cal->width, height);
 	cairo_fill(cr);
 	draw_event_summary(cr, cal, cal->current, et, is_date, is_selected,
-			   height, summary, NULL, sx, sy, ((union rgba){0.1,0.1,0.1}));
+			   height, summary, NULL, sx, sy, ((union rgba){ 0.1, 0.1, 0.1, 1.0 }));
 
 }
 
@@ -2569,7 +2569,7 @@ int main(int argc, char *argv[])
 	if (argc < 2)
 		usage();
 
-	srand(0);
+	srand(42);
 
 	for (int i = 1; i < argc; i++) {
 		printf("loading calendar %s\n", argv[i]);
@@ -2580,9 +2580,9 @@ int main(int argc, char *argv[])
 		// TODO: configure colors from cli?
 		if (ical != NULL) {
 			ical->color = defcol;
-			ical->color.r = rand_0to1() > 0.5 ? 1.0 : 0;
-			ical->color.g = rand_0to1() > 0.5 ? 1.0 : 0;
-			ical->color.b = rand_0to1() > 0.5 ? 1.0 : 0;
+			ical->color.r = 1.0;
+			ical->color.g = 0.0;
+			ical->color.b = 1.0;
 			ical->color.a = 0.9;
 
 			//saturate(&ical->color, 0.35);
@@ -2604,9 +2604,9 @@ int main(int argc, char *argv[])
 	g_text_color.g = text_col;
 	g_text_color.b = text_col;
 
-	color.red = BGCOLOR * 0xffff * 0.6;
-	color.green = BGCOLOR * 0xffff * 0.6;
-	color.blue = BGCOLOR * 0xffff * 0.6;
+	color.red = BGCOLOR;
+	color.green = BGCOLOR;
+	color.blue = BGCOLOR;
 	color.alpha = 1.0;
 
 	/* setlocale(LC_TIME, ""); */

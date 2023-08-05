@@ -99,6 +99,12 @@ static int g_editbuf_pos = 0;
 // TODO: move or remove g_cal_tz
 static icaltimezone *g_cal_tz;
 
+static void print_timezone(icaltimezone *tz) {
+	printf("Timezone Name: %s\n", icaltimezone_get_tzid(tz));
+	printf("Timezone Location: %s\n", icaltimezone_get_location(tz));
+	printf("Timezone TZNAME properties (should include PST/PDT): %s\n", icaltimezone_get_tznames(tz));
+}
+
 struct cal {
 	GtkWidget *widget;
 	struct ical calendars[128];
@@ -262,12 +268,12 @@ static void vevent_span_timet(icalcomponent *vevent, time_t *st, time_t *et)
 
 	if (st) {
 		dtstart = icalcomponent_get_dtstart(vevent);
-		*st = icaltime_as_timet_with_zone(dtstart, g_cal_tz);
+		*st = icaltime_as_timet_with_zone(dtstart, icaltime_get_timezone(dtstart));
 	}
 
 	if (et) {
 		dtend = icalcomponent_get_dtend(vevent);
-		*et = icaltime_as_timet_with_zone(dtend, g_cal_tz);
+		*et = icaltime_as_timet_with_zone(dtend, icaltime_get_timezone(dtend));
 	}
 }
 
@@ -556,16 +562,22 @@ static struct ical * calendar_load_ical(struct cal *cal, char *path) {
 
 	// TODO: free icalcomponent somewhere
 	const char *str = file_load(path);
-	if (str == NULL)
+	if (str == NULL) {
+		printf("failed to read calendar\n");
 		return NULL;
+	}
 
 	icalcomponent *calendar = icalparser_parse_string(str);
-	if (!calendar)
+	if (!calendar) {
+		printf("failed to parse calendar\n");
 		return NULL;
+	}
 
 	// TODO: support >128 calendars
-	if (ARRAY_SIZE(cal->calendars) == cal->ncalendars)
+	if (ARRAY_SIZE(cal->calendars) == cal->ncalendars) {
+		printf("calendar too big (well its not too big, viscal just sucks\n");
 		return NULL;
+	}
 
 	ical = &cal->calendars[cal->ncalendars++];
 	ical->calendar = calendar;
@@ -606,7 +618,7 @@ static icaltimetype icaltime_from_timet_ours(time_t time, int is_date,
 	icaltimezone *tz;
 	tz = cal == NULL ? g_cal_tz : cal->tz;
 
-	return icaltime_from_timet_with_zone(time, is_date, tz);
+	return icaltime_from_timet_with_zone(time, is_date, tz_utc);
 }
 
 static void calendar_drop(struct cal *cal, double mx, double my) {
@@ -893,13 +905,25 @@ static void move_event_to(struct cal *cal, struct event *event, time_t to)
 	vevent_span_timet(event->vevent, &st, &et);
 
 	icaltimetype dtstart =
-		icaltime_from_timet_ours(to, 0, NULL);
+		icaltime_from_timet_ours(to, 0, cal);
 
 	icaltimetype dtend =
-		icaltime_from_timet_ours(to + (et - st), 0, NULL);
+		icaltime_from_timet_ours(to + (et - st), 0, cal);
+
+	char *dtstart_str, *dtend_str;
+
+	dtstart_str = icaltime_as_ical_string(icalcomponent_get_dtstart(event->vevent));
+	dtend_str = icaltime_as_ical_string(icalcomponent_get_dtend(event->vevent));
+	printf("before moving start:%s end:%s\n", dtstart_str, dtend_str);
 
 	icalcomponent_set_dtstart(event->vevent, dtstart);
 	icalcomponent_set_dtend(event->vevent, dtend);
+
+	dtstart = icalcomponent_get_dtstart(event->vevent);
+	dtend = icalcomponent_get_dtend(event->vevent);
+	dtstart_str = icaltime_as_ical_string(dtstart);
+	dtend_str = icaltime_as_ical_string(dtend);
+	printf("after moving start:%s end:%s\n", dtstart_str, dtend_str);
 
 	calendar_refresh_events(cal);
 }
@@ -2599,6 +2623,9 @@ int main(int argc, char *argv[])
 	// TODO: get system timezone
 	g_cal_tz = cal.tz = icaltimezone_get_builtin_timezone("America/Vancouver");
 	tz_utc = icaltimezone_get_builtin_timezone("UTC");
+
+	print_timezone(g_cal_tz);
+	print_timezone(tz_utc);
 
 	g_text_color.r = text_col;
 	g_text_color.g = text_col;

@@ -1228,6 +1228,18 @@ static void zoom_out(struct cal *cal) {
 		zoom(cal, zoom_amt);
 }
 
+static int can_push(struct event *ev) {
+	if (ev->flags & EV_IMMOVABLE)
+		return 0;
+
+	icaltimetype dtstart = icalcomponent_get_dtstart(ev->vevent);
+	if (dtstart.is_date)
+		return 0;
+
+	return 1;
+}
+
+
 static void push_down(struct cal *cal, int ind, time_t push_to)
 {
 	time_t st, et, new_et;
@@ -1241,18 +1253,18 @@ static void push_down(struct cal *cal, int ind, time_t push_to)
 
 	new_et = et - st + push_to;
 
-	if (ind + 1 >= cal->nevents) {
-		if (cal->events[ind+1].flags & EV_IMMOVABLE)
-			return;
+	while (++ind < cal->nevents) {
+		if (can_push(&cal->events[ind]))
+			break;
 	}
 
 	move_event_to(cal, ev, push_to);
 
-	if (ind + 1 >= cal->nevents)
+	if (ind >= cal->nevents)
 		return;
 
 	// push rest
-	push_down(cal, ind+1, new_et);
+	push_down(cal, ind, new_et);
 }
 
 static void push_up(struct cal *cal, int ind, time_t push_to)

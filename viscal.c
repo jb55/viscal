@@ -2497,6 +2497,51 @@ static void draw_current_minute(cairo_t *cr, struct cal *cal)
 	cairo_set_source_rgb (cr, col, col, col);
 }
 
+// draw until-next ephemeral event. This even appears when you have no
+// event but an upcoming event. It allows you to see how much time is left
+// until the next one, etc
+static void draw_ephemeral_event(cairo_t *cr, struct cal *cal)
+{
+	static const char *summary = "Until Next";
+	struct event *ev;
+	double sx, sy, height;
+	time_t st, et;
+	int ind;
+	int is_date = 0;
+	int is_selected = 0;
+
+	time(&st);
+
+	sy = calendar_time_to_loc_absolute(cal, st);
+	sx = cal->x;
+
+	// if we don't have an upcoming event, don't bother
+	if (-1 == (ind = find_closest_event(cal, st, 1)))
+		return;
+
+	ev = &cal->events[ind];
+	vevent_span_timet(ev->vevent, &et, NULL);
+	ind = query_span(cal, ind, st, et, 0, 0);
+
+	// something is already here
+	//if (ind != -1)
+		//return;
+		//
+	
+	if (et - st < 300)
+		return;
+
+	height = calendar_time_to_loc_absolute(cal, et) - sy;
+
+	cairo_move_to(cr, sx, sy);
+
+	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.2);
+	draw_rectangle(cr, cal->width, height);
+	cairo_fill(cr);
+	draw_event_summary(cr, cal, st, et, is_date, is_selected,
+			   height, summary, NULL, sx, sy, ((union rgba){ 0.1, 0.1, 0.1, 1.0 }));
+}
+
 static int
 draw_calendar (cairo_t *cr, struct cal *cal) {
 	int i, width, height;
@@ -2518,6 +2563,8 @@ draw_calendar (cairo_t *cr, struct cal *cal) {
 		if (ev->ical->visible)
 			draw_event(cr, cal, ev, selected, get_target(cal));
 	}
+
+	draw_ephemeral_event(cr, cal);
 
 	if (cal->selected_event_ind == -1)
 		draw_selection(cr, cal);
